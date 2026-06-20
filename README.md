@@ -12,6 +12,7 @@
 ![providers](https://img.shields.io/badge/providers-18%2B-orange.svg)
 ![claude--code](https://img.shields.io/badge/Claude%20Code-statusline-purple.svg)
 ![models](https://img.shields.io/badge/models-402-yellow.svg)
+[![@lpdigital.me](https://img.shields.io/badge/maintained%20by-%40lpdigital.me-E4405F.svg)](https://www.instagram.com/lpdigital.me/)
 
 ---
 
@@ -723,3 +724,7 @@ for the full policy and runtime cache contents.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
 - [SUPPORT.md](SUPPORT.md) — where to ask questions
 - [CHANGELOG.md](CHANGELOG.md) — release notes
+
+---
+
+Curadoria e desenvolvimento por **[@lpdigital.me](https://www.instagram.com/lpdigital.me/)**.
