@@ -19,7 +19,6 @@
   smoke tests in the same file)
 - [ ] I ran `python3 -m py_compile session_tokens.py lib/*.py`
   (no errors)
-- [ ] I ran `bash -n opencode-plugin/install.sh` (no errors)
 - [ ] For new providers: I updated `pricing.json` with at least the
   entry I tested
 

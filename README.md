@@ -1,7 +1,6 @@
 # llm-quota-bar
 
-> **A multi-provider statusline script for [Claude Code][claude-code] — and any TUI
-> that can spawn a Python process (OpenCode, Zed, custom editors…).**
+> **A multi-provider statusline script for [Claude Code][claude-code].**
 > Live token + cost + burn-rate + **provider quota** bar with colour-coded alerts.
 
 [claude-code]: https://docs.claude.com/en/docs/claude-code
@@ -11,7 +10,6 @@
 ![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![providers](https://img.shields.io/badge/providers-18%2B-orange.svg)
 ![claude--code](https://img.shields.io/badge/Claude%20Code-statusline-purple.svg)
-![opencode](https://img.shields.io/badge/OpenCode-plugin-blueviolet.svg)
 ![models](https://img.shields.io/badge/models-402-yellow.svg)
 
 ---
@@ -25,8 +23,9 @@
 - 💰 **Cost in BRL + USD** with a cached FX rate (refreshes hourly).
 - 🧠 **Context window %** + burn-rate emoji (`🧊` / `⚡` / `🔥`) at a glance.
 - 🔌 **402 models** with auto-pricing from upstream `pricing.json`.
-- 🪟 **Two delivery channels out of the box**: Claude Code statusline (Python
-  subprocess) and OpenCode plugin (server-side toast + persistent bar TBD).
+- 🪟 **Drop-in statusline script**: invoked by Claude Code as a Python
+  subprocess every few seconds — zero network ports, zero background
+  daemons.
 - 🔒 **Zero secrets in repo** — keys live in your shell env or `~/.fcc/.env`
   and are referenced by name only. See [SECURITY.md](SECURITY.md).
 
@@ -640,32 +639,10 @@ python3 -m py_compile lib/*.py
 
 ## Related projects
 
-- **[opencode-plugin][opencode-plugin]** — the same statusline bar in
-  [OpenCode][oc] instead of Claude Code. Lives in this repo under
-  [`opencode-plugin/`](opencode-plugin/) — server-side `llm-statusline.ts`
-  + TUI plugin (`llm-statusline-tui/`) that renders a persistent 3-line
-  bar in the OpenCode footer and exposes a `/quota` slash command to
-  toggle it.
 - **[free-claude-code-minimax][fcc]** — the fcc-claude fork that this project was
   originally built for. Adds `minimax` as a first-class provider.
 
-[opencode-plugin]: ./opencode-plugin/
-[oc]: https://opencode.ai
 [fcc]: https://github.com/philipecomputacao/free-claude-code-minimax
-
-### OpenCode plugin status (2026-06)
-
-| Feature | Works today? |
-|---|---|
-| Server plugin: 3-line toast on `session.idle` | ✅ Yes |
-| Persistent bar in `home_bottom` slot | ⏳ Waiting for OpenCode TUI plugin runtime |
-| `/quota` slash command | ⏳ Same |
-
-The server plugin reuses `session_tokens.py` unchanged — same Python entry
-point, same pricing data, same provider quota adapters. Only the glue that
-delivers the bar changes between Claude Code (subprocess statusline) and
-OpenCode (toast on `session.idle`). See
-[`opencode-plugin/README.md`](opencode-plugin/) for full details.
 
 ---
 
@@ -695,5 +672,3 @@ for the full policy and runtime cache contents.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — bug reports, feature requests,
   how to add a new quota adapter
 - [CHANGELOG.md](CHANGELOG.md) — release notes
-- [opencode-plugin/README.md](opencode-plugin/README.md) — OpenCode
-  plugin docs (status, install, architecture)

@@ -3,7 +3,7 @@
 Thanks for your interest in `llm-quota-bar`! 🎉
 
 This document covers how to report bugs, request features, and contribute code
-(new providers, quota adapters, OpenCode plugin improvements, docs).
+(new providers, quota adapters, docs).
 
 ---
 
@@ -11,8 +11,7 @@ This document covers how to report bugs, request features, and contribute code
 
 1. **Search existing issues** first — including closed ones.
 2. **Collect the bar output** you're seeing (paste the 3 lines verbatim).
-3. **Mention your platform** — Claude Code version / OpenCode version /
-   Python version / OS.
+3. **Mention your platform** — Claude Code version / Python version / OS.
 4. **Mention which provider** you're testing (MiniMax, OpenRouter, etc.) and
    whether you set the corresponding env var.
 5. **Include steps to reproduce** — even rough ones.
@@ -113,32 +112,10 @@ price actually changed).
 
 ---
 
-## 🪟 Improving the OpenCode plugin
-
-The plugin lives in [`opencode-plugin/`](opencode-plugin/). Two pieces:
-
-1. **`plugins/llm-statusline.ts`** — server-side glue. Listens to
-   `session.idle`, queries `client.session.messages()`, spawns the Python
-   bar, shows the toast. This **is** the user-visible bit today.
-2. **`plugins/llm-statusline-tui/index.js`** — TUI-side glue. Renders the
-   persistent bar in the `home_bottom` slot and exposes the `/quota`
-   slash command. Currently dormant because OpenCode 1.17.8 ships an
-   empty `tui.js` runtime; will activate automatically when upstream
-   lands it.
-
-OpenCode's plugin SDK lives at `~/.config/opencode/node_modules/@opencode-ai/plugin/`.
-The types in `tui.d.ts` show what `api.slots`, `api.command`, and `api.ui`
-are supposed to do — until the runtime ships, the server plugin is the
-only piece that's user-visible.
-
----
-
 ## 🧹 Style
 
 - **Python**: stdlib only — no `requests`, no `pydantic`. Match the style
   of the surrounding file (`lib/provider_quota.py`).
-- **TypeScript**: solid-js + `@opencode-ai/plugin`. No external deps
-  beyond what's in `plugins/llm-statusline-tui/package.json`.
 - **Shell**: `bash` with `set -euo pipefail`. Idempotent (re-runnable).
 - **Commits**: Conventional Commits-lite in PT-BR, e.g.
   `feat(quota): adiciona adapter para NewProvider`,

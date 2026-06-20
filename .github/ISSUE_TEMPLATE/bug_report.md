@@ -1,6 +1,6 @@
 ---
 name: 🐛 Bug report
-about: Something is broken in the statusline or the OpenCode plugin
+about: Something is broken in the statusline script
 title: '[BUG] '
 labels: bug
 assignees: ''
@@ -25,11 +25,10 @@ assignees: ''
 
 - **OS**: (macOS / Linux / Windows WSL)
 - **Claude Code version**: <!-- `claude --version` -->
-- **OpenCode version** (if relevant): <!-- `opencode --version` -->
 - **Python version**: <!-- `python3 --version` -->
 - **Provider** being tested: (MiniMax / OpenRouter / DeepSeek / Mistral / OpenAI / Codex)
 - **Env var set?** (yes/no — name only, not the value)
-- **Install method**: (symlink / curl one-liner / opencode-plugin install.sh)
+- **Install method**: (symlink / curl one-liner)
 
 ## Steps to reproduce
 

@@ -7,10 +7,7 @@ versions grouped by date.
 ## [Unreleased]
 
 ### Planned
-- OpenCode TUI plugin: persistent bar in `home_bottom` slot (waiting for
-  OpenCode to ship the TUI plugin runtime — types exist, runtime is empty
-  as of 1.17.8).
-- OpenCode `/quota` slash command to toggle the bar (same blocker).
+- (no items yet)
 
 ---
 
@@ -23,19 +20,13 @@ versions grouped by date.
 - **`CONTRIBUTING.md`** — bug reports, feature requests, "how to add a
   new quota adapter", style guide.
 - **`CHANGELOG.md`** — this file.
-- **README badges**: claude-code, opencode, models-402.
+- **README badges**: claude-code, models-402.
 - **README "Highlights"** section — one-glance summary for陌生人 landing
   on the repo.
 
 ### Changed
-- **`opencode-plugin/README.md`** — explicit status table (server plugin
-  ✅, persistent bar ⏳, `/quota` ⏳) so visitors know what works today.
-- **`opencode-plugin/install.sh`** — final message no longer promises the
-  `/quota` command (it doesn't work until OpenCode ships the runtime).
-- **`README.md` "Related projects"** — rewritten to point at the in-repo
-  `opencode-plugin/` instead of a (non-existent) separate repo.
 - **`.gitignore`** — added `node_modules` (no slash) above the existing
-  `node_modules/` rule to catch the symlink created by `install.sh`.
+  `node_modules/` rule to cover the dev-time symlink layout.
 
 ### Security
 - **Audited every blob in full git history** for `sk-*`, `sk-or-*`,
@@ -46,35 +37,12 @@ versions grouped by date.
 
 ---
 
-## [2026-06-19] — OpenCode plugin lands
-
-### Added
-- **`opencode-plugin/`** — a complete OpenCode plugin that reuses
-  `session_tokens.py` to deliver the same 3-line bar inside OpenCode.
-  - **`plugins/llm-statusline.ts`** — server plugin. Listens to
-    `session.idle`, queries `client.session.messages()` (the event payload
-    carries only `{sessionID}`), spawns the Python bar, shows a 3-line
-    toast via `client.tui.showToast()`.
-  - **`plugins/llm-statusline-tui/index.js`** — TUI plugin. Registers the
-    `home_bottom` slot and `/quota` slash command. Dormant until OpenCode
-    ships the TUI plugin runtime.
-  - **`install.sh`** — idempotent installer: symlinks into
-    `~/.config/opencode/plugins/`, symlinks `node_modules` from the
-    `cc-statusline` plugin, patches `opencode.jsonc` with a marker
-    comment for re-runs.
-
-### Fixed
-- **Toast shows all 3 lines** (model + tokens + cost), not just one. The
-  fix was joining `lines[0..2]` instead of rendering `lines[1]` only.
-
----
-
 ## [2026-06-10] — Project rename
 
 ### Changed
 - Renamed the project from `claude-code-statusline` to `llm-quota-bar` to
-  reflect that it's no longer Claude-Code-only — the OpenCode plugin uses
-  the same engine.
+  better reflect its multi-provider nature (MiniMax, OpenRouter, DeepSeek,
+  Mistral, OpenAI, Codex).
 - Updated `README.md`, `lib/`, `scripts/build_pricing.py` paths.
 
 ---

@@ -1,7 +1,6 @@
 # Security policy
 
-This document covers how `llm-quota-bar` (and its embedded
-[`opencode-plugin/`](opencode-plugin/)) handles secrets.
+This document covers how `llm-quota-bar` handles secrets.
 
 ## TL;DR
 
@@ -16,16 +15,13 @@ referenced by name only.
 | `session_tokens.py` | ❌ References `MINIMAX_API_KEY` etc. by env var name only |
 | `lib/provider_quota.py` | ❌ Reads from `os.environ` + `~/.fcc/.env` |
 | `pricing.json` | ❌ Public price table |
-| `opencode-plugin/plugins/llm-statusline.ts` | ❌ Spawns Python, no key handling |
-| `opencode-plugin/plugins/llm-statusline-tui/index.js` | ❌ Reads cache file, no key handling |
 | `~/.cache/llm-quota-bar/` (runtime) | ❌ Public output only — see "What gets cached" below |
 
 ## What gets cached at runtime
 
-The plugin writes three files under `~/.cache/llm-quota-bar/`:
+The statusline writes two files under `~/.cache/llm-quota-bar/`:
 
-1. **`opencode-statusline.txt`** — 3-line ANSI-coloured bar (model + tokens + cost). Public output.
-2. **`provider-quota.json`** — quota percentages and reset times only:
+1. **`provider-quota.json`** — quota percentages and reset times only:
    ```json
    {
      "_fetched_at": 1781989062.69,
@@ -40,7 +36,7 @@ The plugin writes three files under `~/.cache/llm-quota-bar/`:
    }
    ```
    **No tokens, no request bodies, no credentials.**
-3. **`fx.json`** — BRL/USD FX rate (refreshed hourly, cached 1h). Public data.
+2. **`fx.json`** — BRL/USD FX rate (refreshed hourly, cached 1h). Public data.
 
 None of these files contain keys. The `.gitignore` template in the central
 excludes `.cache/`, `.env*`, `*.key`, `credentials*.json`, etc.
@@ -76,4 +72,4 @@ and a reproducer. Most issues are handled within 48h.
 
 | Date | Audit | Result |
 |---|---|---|
-| 2026-06-20 | First audit after `opencode-plugin/` added | ✅ Clean — no leaks in repo or git history |
+| 2026-06-20 | Repo audited at public release | ✅ Clean — no leaks in repo or git history |
