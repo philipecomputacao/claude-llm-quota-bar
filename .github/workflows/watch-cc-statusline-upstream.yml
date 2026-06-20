@@ -111,7 +111,7 @@ jobs:
               : '_(could not parse upstream payload)_';
 
             const disclaimer = [
-              '> **Atenção:** este projeto (`claude-code-statusline`) é',
+              '> **Atenção:** este projeto (`llm-quota-bar`) é',
               '> **independente** do upstream `Miluer-tcq/cc-statusline`.',
               '> Esta issue é apenas uma **lista de leitura**. Nada é merged',
               '> automaticamente. Leia, escolha o que prestar, e porte',

@@ -1,4 +1,4 @@
-# claude-code-statusline
+# llm-quota-bar
 
 > **A multi-provider statusline script for [Claude Code][claude-code] — and any TUI
 > that can spawn a Python process (OpenCode, Zed, custom editors…).**
@@ -83,18 +83,18 @@ Pick **one** install method.
 #### Symlink (recommended for development)
 
 ```bash
-git clone https://github.com/philipecomputacao/claude-code-statusline.git \
-    ~/Projetos/projetos/claude-code-statusline
+git clone https://github.com/philipecomputacao/llm-quota-bar.git \
+    ~/Projetos/projetos/llm-quota-bar
 
 mkdir -p ~/.claude/statusline
-ln -sf ~/Projetos/projetos/claude-code-statusline/session_tokens.py \
+ln -sf ~/Projetos/projetos/llm-quota-bar/session_tokens.py \
        ~/.claude/statusline/session_tokens.py
 ```
 
 #### Direct copy (no symlink)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/philipecomputacao/claude-code-statusline/main/session_tokens.py \
+curl -fsSL https://raw.githubusercontent.com/philipecomputacao/llm-quota-bar/main/session_tokens.py \
     -o ~/.claude/statusline/session_tokens.py
 chmod +x ~/.claude/statusline/session_tokens.py
 ```
@@ -333,7 +333,7 @@ for that model — the script does **not** crash.
 
 The script fetches the BRL/USD rate from `https://open.er-api.com/v6/latest/USD`
 (50 reqs/month free tier), caches the result in
-`~/.cache/claude-code-statusline/fx.json` for `fx_cache_ttl_seconds` (default 1h),
+`~/.cache/llm-quota-bar/fx.json` for `fx_cache_ttl_seconds` (default 1h),
 and falls back to a static 5.20 if the API is unreachable.
 
 ---
@@ -496,7 +496,7 @@ the JSONL output for `[<provider>] <error>` lines.
 The cache TTL is 60s. To force a refresh:
 
 ```bash
-rm ~/.cache/claude-code-statusline/provider-quota.json
+rm ~/.cache/llm-quota-bar/provider-quota.json
 ```
 
 ### `???` model label
@@ -509,7 +509,7 @@ Add an entry — see [Pricing data](#pricing-data).
 Check the BRL/USD FX rate cache:
 
 ```bash
-cat ~/.cache/claude-code-statusline/fx.json
+cat ~/.cache/llm-quota-bar/fx.json
 ```
 
 If `source: "fallback"`, the API call failed and we're using a hardcoded 5.20.
@@ -547,8 +547,8 @@ always start with `↻R 0`.
 ## Development
 
 ```bash
-git clone https://github.com/philipecomputacao/claude-code-statusline.git
-cd claude-code-statusline
+git clone https://github.com/philipecomputacao/llm-quota-bar.git
+cd llm-quota-bar
 
 # Run the script in isolation
 python3 session_tokens.py < /dev/null

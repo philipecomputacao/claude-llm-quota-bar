@@ -1,7 +1,7 @@
 """Fetch USD->BRL exchange rate from a free public API with disk caching.
 
 Uses AwesomeAPI by default (Brazilian, free, no auth). Caches the rate in
-``~/.cache/claude-code-statusline/fx.json`` for ``cache_ttl_seconds`` (default
+``~/.cache/llm-quota-bar/fx.json`` for ``cache_ttl_seconds`` (default
 1 hour) so we do not hit the network on every statusline refresh.
 
 Falls back to ``fallback_rate`` from :mod:`pricing` if the network call fails.
@@ -20,7 +20,7 @@ from pathlib import Path
 DEFAULT_API_URL = "https://economia.awesomeapi.com.br/last/USD-BRL"
 DEFAULT_TTL_SECONDS = 3600
 DEFAULT_TIMEOUT_SECONDS = 2.0
-CACHE_DIRNAME = "claude-code-statusline"
+CACHE_DIRNAME = "llm-quota-bar"
 CACHE_FILENAME = "fx.json"
 
 
@@ -84,7 +84,7 @@ def _write_cache(directory: Path, rate: float) -> None:
 def _fetch_live(api_url: str, timeout: float) -> float | None:
     """Call the FX API and return the USD->BRL rate, or ``None`` on failure."""
     try:
-        req = urllib.request.Request(api_url, headers={"User-Agent": "claude-code-statusline/1.0"})
+        req = urllib.request.Request(api_url, headers={"User-Agent": "llm-quota-bar/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, json.JSONDecodeError):
