@@ -17,13 +17,16 @@
 
 ## Highlights
 
-- 📊 **Multi-provider quota bar** — one line tells you your real-time usage on
-  [MiniMax Token Plan](https://platform.minimax.io), OpenRouter credits,
-  DeepSeek balance, Mistral usage, OpenAI credit grants, and Codex ChatGPT
-  plan. Falls back gracefully when no key is set.
+- 🧠 **Built for Claude Code, first** — tracks native Claude sessions out of
+  the box: per-message tokens, cache reads/writes, context window %, and
+  burn rate (`🧊` / `⚡` / `🔥`) in three colour-coded lines.
+- 📊 **Live quota when you route elsewhere** — extend the bar with the
+  `⏱` segment for [MiniMax Token Plan](https://platform.minimax.io),
+  OpenRouter credits, DeepSeek balance, Mistral usage, OpenAI credit
+  grants, and Codex ChatGPT plan. Falls back gracefully when no key is set.
 - 💰 **Cost in BRL + USD** with a cached FX rate (refreshes hourly).
-- 🧠 **Context window %** + burn-rate emoji (`🧊` / `⚡` / `🔥`) at a glance.
-- 🔌 **402 models** with auto-pricing from upstream `pricing.json`.
+- 🔌 **402 models** with auto-pricing from upstream `pricing.json`
+  (Anthropic, OpenAI, Google, Mistral, DeepSeek + 18+ gateway pass-throughs).
 - 🪟 **Drop-in statusline script**: invoked by Claude Code as a Python
   subprocess on every refresh tick — zero daemons, no background
   service to install.
@@ -33,6 +36,17 @@
 ---
 
 ## What you get
+
+Native Claude Code session (no API key needed for the quota segment):
+
+```
+[claude-sonnet-4-5·opencode] • 📁 ~/Projetos/foo • 📟 v2.1.170
+⬆1.0M ⬇48k ↻R2.8M • 🧠 12% usado (88% livre)
+🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
+```
+
+Routed through a third-party provider with a quota adapter enabled
+(`MINIMAX_API_KEY` set in this example):
 
 ```
 [MiniMax-M3·minimax] • 📁 ~/Projetos/foo • 📟 v2.1.170
@@ -59,21 +73,24 @@ All segments are independently toggleable. All thresholds are configurable.
 
 Claude Code's built-in statusline is a one-liner with the model name. If you:
 
-- hop between **18+ LLM providers** (Claude, MiniMax, OpenRouter, OpenAI, Codex,
-  DeepSeek, Mistral, Groq, Cerebras, Fireworks, ZAI, Kimi, NVIDIA NIM, Ollama,
-  LlamaCPP, LMStudio, Wafer, …) and want to track **per-provider quota** in real time
-- burn through **MiniMax Token Plan** windows and need to know exactly when the 5h
-  counter resets
+- use **native Claude Code** and want a glanceable summary of tokens,
+  context window %, cost, and burn rate that the built-in statusline
+  doesn't show
+- route Claude Code through **18+ LLM providers** (Claude, MiniMax,
+  OpenRouter, OpenAI, Codex, DeepSeek, Mistral, Groq, Cerebras, Fireworks,
+  ZAI, Kimi, NVIDIA NIM, Ollama, LlamaCPP, LMStudio, Wafer, …) and want
+  to track **per-provider quota** in real time
+- burn through **MiniMax Token Plan** windows and need to know exactly when
+  the 5h counter resets
 - run on **OpenRouter credits** and need a glance-able `$2.50 used of $10.00`
 - use **ChatGPT Plus/Pro via Codex CLI** and want your plan badge in the bar
-- want to see **context window %** alongside the bar (Claude Code doesn't show this)
 - are cost-conscious and need **BRL ↔ USD** with a cached FX rate
 
-…this script is for you. It started as a fork of [Miluer-tcq/cc-statusline][upstream-cn]
-but the upstream has since been rewritten in bash; this repo stays on **Python 3** with
-first-class multi-provider quota tracking.
-
-[upstream-cn]: https://github.com/Miluer-tcq/cc-statusline
+…this script is for you. It started as a fork of
+[Miluer-tcq/cc-statusline](https://github.com/Miluer-tcq/cc-statusline) but
+the upstream has since been rewritten in bash; this repo stays on **Python 3**
+with first-class multi-provider quota tracking. See
+[Upstream history](#upstream-history) for the full story.
 
 ---
 
@@ -90,7 +107,7 @@ first-class multi-provider quota tracking.
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Related projects](#related-projects)
-- [Upstream divergence](#upstream-divergence)
+- [Upstream history](#upstream-history)
 - [License](#license)
 - [Security](#security)
 
@@ -138,6 +155,12 @@ Restart Claude Code. You should see the new bar immediately.
 
 ### 3. (Optional) Set API keys for live quota
 
+> **Native Claude Code sessions don't need any API key.** The `⏱` segment
+> is only relevant when you route Claude Code through a third-party
+> gateway that exposes its own quota API. Anthropic does not publish a
+> per-account rate-limit endpoint, so the `⏱` segment is intentionally
+> omitted for native Claude sessions.
+
 The `⏱` segment only renders if the matching API key is set. Add to your shell rc:
 
 ```bash
@@ -180,7 +203,7 @@ ever called. Pricing is read from `pricing.json` (402 models, 5 direct providers
 
 | Provider | Cost | Tokens | Cache R/W | Quota (`⏱`) |
 |---|---|---|---|---|
-| Claude (native) | ✅ | ✅ | ✅ | — |
+| Claude (native) | ✅ | ✅ | ✅ | — (Anthropic exposes no per-account quota API) |
 | `minimax` | ✅ | ✅ | ✅ | **✅** (Token Plan 5h + weekly) |
 | `open_router` | ✅ | ✅ | ✅ | **✅** (credits API) |
 | `opencode` | ✅ | ✅ | ✅ | — (gateway) |
@@ -200,6 +223,12 @@ ever called. Pricing is read from `pricing.json` (402 models, 5 direct providers
 ---
 
 ## Quota adapters
+
+Anthropic-native Claude Code sessions use no quota adapter — Anthropic
+exposes no per-account rate-limit endpoint, so the `⏱` segment is
+intentionally omitted for native sessions. The adapters below activate
+only when Claude Code is routed through a third-party provider whose API
+supports live quota introspection.
 
 Six quota adapters are wired up. The bar shows a single `⏱` segment for the **active**
 provider's adapter; the segment is omitted if no adapter matches.
@@ -552,6 +581,15 @@ CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=test \
 
 Then trigger any prompt in Claude Code and check the bar.
 
+### `ANTHROPIC_API_KEY` doesn't enable the `⏱` segment
+
+Anthropic does not expose a per-account rate-limit or quota API. Setting
+`ANTHROPIC_API_KEY` is **not** enough to make the `⏱` segment appear for
+native Claude sessions — it is silently ignored as a quota key. To see live
+quota, route Claude Code through a third-party gateway (e.g. MiniMax,
+OpenRouter) and set that gateway's key (`MINIMAX_API_KEY`,
+`OPENROUTER_API_KEY`, etc.).
+
 ### `MINIMAX_API_KEY not set` (or similar)
 
 The script reads keys from both the env and `~/.fcc/.env`. Verify the file exists
@@ -619,7 +657,7 @@ CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=dev-test \
 ├── pricing.json             # 402 models, 5 direct providers
 ├── statusline.env.json      # default display toggles
 └── .github/workflows/
-    └── watch-cc-statusline-upstream.yml  # weekly divergence check
+    └── ci.yml               # py_compile + smoke test
 ```
 
 ### Tests
@@ -647,13 +685,17 @@ python3 -m py_compile lib/*.py
 
 ---
 
-## Upstream divergence
+## Upstream history
 
-This project is **independent** of [Miluer-tcq/cc-statusline][upstream-cn]. The upstream
-was rewritten in bash + JSON presets in 2025; we intentionally stay on Python 3 so
-we can add new quota adapters without maintaining bash. A weekly GitHub Action
-([`.github/workflows/watch-cc-statusline-upstream.yml`](.github/workflows/watch-cc-statusline-upstream.yml))
-opens a tracking issue when upstream gains new commits; nothing is auto-merged.
+This project was originally forked from
+[Miluer-tcq/cc-statusline](https://github.com/Miluer-tcq/cc-statusline) but
+is now fully independent. The upstream was rewritten in bash + JSON presets
+in 2025; we intentionally stayed on Python 3 so we can add new quota
+adapters without maintaining bash. A weekly GitHub Action used to open
+tracking issues when upstream gained new commits, but the divergence
+tracker was removed in v2.1.0 since the two codebases no longer share
+edits in any meaningful way. See [CHANGELOG.md](CHANGELOG.md) for the
+historical timeline.
 
 ---
 
@@ -669,7 +711,11 @@ for the full policy and runtime cache contents.
 ## Documentation
 
 - [README.md](README.md) — this file
+- [CLAUDE.md](CLAUDE.md) — entry points, dev commands, naming conventions
+  for future Claude Code agents working on this repo
 - [SECURITY.md](SECURITY.md) — secret-handling policy + audit log
 - [CONTRIBUTING.md](CONTRIBUTING.md) — bug reports, feature requests,
   how to add a new quota adapter
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
+- [SUPPORT.md](SUPPORT.md) — where to ask questions
 - [CHANGELOG.md](CHANGELOG.md) — release notes
