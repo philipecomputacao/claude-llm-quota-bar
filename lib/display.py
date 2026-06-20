@@ -46,7 +46,6 @@ class DisplayOptions:
     show_cache_pct: bool = True
     show_flags: bool = True
     show_both_currencies: bool = True
-    show_minimax_quota: bool = True
     show_provider_quota: bool = True
     quota_warn_pct: float = 60.0
     quota_alert_pct: float = 85.0
