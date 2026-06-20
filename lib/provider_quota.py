@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
-CACHE_DIRNAME = "llm-quota-bar"
+CACHE_DIRNAME = "claude-llm-quota-bar"
 CACHE_FILENAME = "provider-quota.json"
 
 DEFAULT_CACHE_TTL_SECONDS = 60.0

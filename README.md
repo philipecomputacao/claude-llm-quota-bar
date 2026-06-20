@@ -1,4 +1,4 @@
-# llm-quota-bar
+# claude-llm-quota-bar
 
 > **A multi-provider statusline script for [Claude Code][claude-code].**
 > Live token + cost + burn-rate + **provider quota** bar with colour-coded alerts.
@@ -6,7 +6,7 @@
 [claude-code]: https://docs.claude.com/en/docs/claude-code
 
 [![license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/philipecomputacao/llm-quota-bar/actions/workflows/ci.yml/badge.svg)](https://github.com/philipecomputacao/llm-quota-bar/actions/workflows/ci.yml)
+[![CI](https://github.com/philipecomputacao/claude-llm-quota-bar/actions/workflows/ci.yml/badge.svg)](https://github.com/philipecomputacao/claude-llm-quota-bar/actions/workflows/ci.yml)
 ![status](https://img.shields.io/badge/status-stable-brightgreen.svg)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![providers](https://img.shields.io/badge/providers-18%2B-orange.svg)
@@ -105,18 +105,18 @@ Pick **one** install method.
 #### Symlink (recommended for development)
 
 ```bash
-git clone https://github.com/philipecomputacao/llm-quota-bar.git \
-    ~/Projetos/projetos/llm-quota-bar
+git clone https://github.com/philipecomputacao/claude-llm-quota-bar.git \
+    ~/Projetos/projetos/claude-llm-quota-bar
 
 mkdir -p ~/.claude/statusline
-ln -sf ~/Projetos/projetos/llm-quota-bar/session_tokens.py \
+ln -sf ~/Projetos/projetos/claude-llm-quota-bar/session_tokens.py \
        ~/.claude/statusline/session_tokens.py
 ```
 
 #### Direct copy (no symlink)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/philipecomputacao/llm-quota-bar/main/session_tokens.py \
+curl -fsSL https://raw.githubusercontent.com/philipecomputacao/claude-llm-quota-bar/main/session_tokens.py \
     -o ~/.claude/statusline/session_tokens.py
 chmod +x ~/.claude/statusline/session_tokens.py
 ```
@@ -354,7 +354,7 @@ for that model — the script does **not** crash.
 
 The script fetches the BRL/USD rate from `https://open.er-api.com/v6/latest/USD`
 (50 reqs/month free tier), caches the result in
-`~/.cache/llm-quota-bar/fx.json` for `fx_cache_ttl_seconds` (default 1h),
+`~/.cache/claude-llm-quota-bar/fx.json` for `fx_cache_ttl_seconds` (default 1h),
 and falls back to a static 5.20 if the API is unreachable.
 
 ---
@@ -518,7 +518,7 @@ the JSONL output for `[<provider>] <error>` lines.
 The cache TTL is 60s. To force a refresh:
 
 ```bash
-rm ~/.cache/llm-quota-bar/provider-quota.json
+rm ~/.cache/claude-llm-quota-bar/provider-quota.json
 ```
 
 ### `???` model label
@@ -531,7 +531,7 @@ Add an entry — see [Pricing data](#pricing-data).
 Check the BRL/USD FX rate cache:
 
 ```bash
-cat ~/.cache/llm-quota-bar/fx.json
+cat ~/.cache/claude-llm-quota-bar/fx.json
 ```
 
 If `source: "fallback"`, the API call failed and we're using a hardcoded 5.20.
@@ -569,8 +569,8 @@ always start with `↻R 0`.
 ## Development
 
 ```bash
-git clone https://github.com/philipecomputacao/llm-quota-bar.git
-cd llm-quota-bar
+git clone https://github.com/philipecomputacao/claude-llm-quota-bar.git
+cd claude-llm-quota-bar
 
 # Run the script in isolation
 python3 session_tokens.py < /dev/null

@@ -1,6 +1,6 @@
 # Security policy
 
-This document covers how `llm-quota-bar` handles secrets.
+This document covers how `claude-llm-quota-bar` handles secrets.
 
 ## TL;DR
 
@@ -15,11 +15,11 @@ referenced by name only.
 | `session_tokens.py` | ❌ References `MINIMAX_API_KEY` etc. by env var name only |
 | `lib/provider_quota.py` | ❌ Reads from `os.environ` + `~/.fcc/.env` |
 | `pricing.json` | ❌ Public price table |
-| `~/.cache/llm-quota-bar/` (runtime) | ❌ Public output only — see "What gets cached" below |
+| `~/.cache/claude-llm-quota-bar/` (runtime) | ❌ Public output only — see "What gets cached" below |
 
 ## What gets cached at runtime
 
-The statusline writes two files under `~/.cache/llm-quota-bar/`:
+The statusline writes two files under `~/.cache/claude-llm-quota-bar/`:
 
 1. **`provider-quota.json`** — quota percentages and reset times only:
    ```json
@@ -49,8 +49,8 @@ excludes `.cache/`, `.env*`, `*.key`, `credentials*.json`, etc.
 - Live quota tokens, session cookies, or JWTs
 - n8n workflows with real credentials (`n8n-workflow.json`)
 
-For example secrets used in tests, see `tests/` and `scripts/build_pricing.py`
-— these use obviously-fake values (`sk-test-...`, `sk-cp-EXAMPLE`).
+For example secrets used in dev tooling, see `scripts/build_pricing.py`
+— it uses obviously-fake values (`sk-test-...`, `sk-cp-EXAMPLE`).
 
 ## If you leak a key
 

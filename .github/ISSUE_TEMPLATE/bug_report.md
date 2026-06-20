@@ -38,7 +38,7 @@ assignees: ''
 
 ## Logs
 
-<!-- If you can grab the Claude Code log or `~/.cache/llm-quota-bar/`, attach it. -->
+<!-- If you can grab the Claude Code log or `~/.cache/claude-llm-quota-bar/`, attach it. -->
 
 ## Security note
 

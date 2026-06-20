@@ -1,10 +1,17 @@
 # Changelog
 
-All notable changes to `llm-quota-bar` are documented here. The format is
+All notable changes to `claude-llm-quota-bar` are documented here. The format is
 loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with
 versions grouped by date.
 
 ## [Unreleased]
+
+### Changed
+- **Renamed the project from `llm-quota-bar` to `claude-llm-quota-bar`** to
+  make the Claude Code target explicit in the repo name. GitHub redirects
+  from the old URL are automatic. The runtime cache directory moved from
+  `~/.cache/llm-quota-bar/` to `~/.cache/claude-llm-quota-bar/` — existing
+  cache files are orphaned but regenerate on the next statusline run.
 
 ### Planned
 - (no items yet)
@@ -31,7 +38,7 @@ versions grouped by date.
 ### Security
 - **Audited every blob in full git history** for `sk-*`, `sk-or-*`,
   `sk-cp-*`, `sk-admin-*`, `ms-*` patterns — **zero leaks**.
-- **Audited `~/.cache/llm-quota-bar/`** — only public quota percentages
+- **Audited `~/.cache/claude-llm-quota-bar/`** — only public quota percentages
   and reset times; no tokens, no request bodies, no credentials.
 - **Audit log entry** added to `SECURITY.md`.
 
@@ -59,7 +66,7 @@ versions grouped by date.
   - `openai_dashboard` — `GET /v1/dashboard/billing/credit_grants`
     (admin-only)
   - `openai_codex` — JWT-decode plan badge (Plus / Pro / Team)
-- **`provider-quota.json`** cache at `~/.cache/llm-quota-bar/` (public
+- **`provider-quota.json`** cache at `~/.cache/claude-llm-quota-bar/` (public
   data only — no keys, no request bodies).
 - **Quota label format**: `X% usado (Y% livre)` matching the `🧠`
   context-window segment.

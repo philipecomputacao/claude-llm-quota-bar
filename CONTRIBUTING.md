@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in `llm-quota-bar`! 🎉
+Thanks for your interest in `claude-llm-quota-bar`! 🎉
 
 This document covers how to report bugs, request features, and contribute code
 (new providers, quota adapters, docs).
