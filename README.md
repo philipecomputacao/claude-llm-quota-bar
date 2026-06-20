@@ -270,6 +270,23 @@ export KEY=$(grep MINIMAX_API_KEY ~/.fcc/.env | cut -d= -f2 | tr -d '"')
    que é o sinal mais confiável; a contagem exata depende do tier (Plus /
    Max / Ultra) e do tipo de recurso (`general`, `video`, etc.).
 
+## Inspiração: cc-statusline upstream
+
+A inspiração visual original veio do projeto community `Miluer-tcq/cc-statusline`.
+Este projeto é **independente** (reescrito em Python + pricing dinâmico + quota
+MiniMax + cache R/W + burn rate 🧊⚡🔥) e **não é um fork**.
+
+Para não perder novidades do upstream, `.github/workflows/watch-cc-statusline-upstream.yml`
+roda toda segunda 9h BRT e abre uma issue listando os commits novos do upstream.
+**Nenhum merge é feito automaticamente** — a issue serve como lista de leitura
+pra você escolher manualmente o que portar.
+
+Workflow:
+1. Lê `.github/upstream-sha` (SHA conhecido) e busca HEAD do upstream via `git ls-remote`.
+2. Se mudou: chama GitHub compare API pra listar commits novos.
+3. Abre/atualiza issue com label `upstream-watch`.
+4. Bumpa o SHA conhecido (commit automático via `github-actions[bot]`).
+
 ## Próximas melhorias (opcional)
 
 - [ ] Tracking per-model em vez de só último modelo
