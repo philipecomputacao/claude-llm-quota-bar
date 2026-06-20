@@ -123,10 +123,19 @@ def _build_context_info(
             if isinstance(pct, (int, float)):
                 context_used_pct = int(round(float(pct)))
 
+    session_duration_ms: int | None = None
+    if isinstance(stdin_hint, dict):
+        cost_field = stdin_hint.get("cost")
+        if isinstance(cost_field, dict):
+            raw_ms = cost_field.get("total_duration_ms")
+            if isinstance(raw_ms, (int, float)) and raw_ms >= 0:
+                session_duration_ms = int(raw_ms)
+
     return ContextInfo(
         cwd=cwd,
         cc_version=cc_version,
         context_used_pct=context_used_pct,
+        session_duration_ms=session_duration_ms,
     )
 
 

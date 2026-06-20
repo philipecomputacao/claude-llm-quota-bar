@@ -68,6 +68,17 @@ class ContextInfo:
     cwd: str | None = None
     cc_version: str | None = None
     context_used_pct: int | None = None  # 0-100, percent of context used
+    session_duration_ms: int | None = None  # wall-clock since session started (from stdin)
+
+
+# Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
+# (community ``cc-statusline`` layout) so users do not lose the visual markers.
+EMOJI_DIR = "\U0001F4C1"      # 📁
+EMOJI_CC = "\U0001F4DF"       # 📟
+EMOJI_CONTEXT = "\U0001F9E0"  # 🧠
+EMOJI_QUOTA = "\u23F1"        # ⏱
+EMOJI_CALENDAR = "\U0001F4C5" # 📅
+EMOJI_TIMER = "\u231B"        # ⌛ (session duration; avoids colliding with ⏱ quota)
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -127,7 +138,12 @@ def _format_cost(usd: float, fx: float) -> tuple[str, str]:
 
 
 def _format_duration(start: str | None, end: str | None) -> str | None:
-    """Return compact duration like ``18m`` / ``1h23m`` / ``42s``."""
+    """Return compact duration like ``18m`` / ``1h23m`` / ``42s``.
+
+    ``start``/``end`` are ISO 8601 timestamps from the JSONL. The wall-clock
+    session duration (preferred) is taken from
+    :attr:`ContextInfo.session_duration_ms` instead — see :func:`render`.
+    """
     if not start or not end:
         return None
     try:
@@ -139,12 +155,35 @@ def _format_duration(start: str | None, end: str | None) -> str | None:
     total_seconds = int(delta.total_seconds())
     if total_seconds < 0:
         return None
+    return _format_seconds(total_seconds)
+
+
+def _format_seconds(total_seconds: int) -> str:
     if total_seconds < 60:
         return f"{total_seconds}s"
     if total_seconds < 3600:
         return f"{total_seconds // 60}m"
     hours, rem = divmod(total_seconds, 3600)
     return f"{hours}h{rem // 60}m"
+
+
+def _resolve_duration(
+    totals: TokenTotals,
+    context: ContextInfo | None,
+) -> str | None:
+    """Pick the best duration source for the statusline.
+
+    Prefers ``context.session_duration_ms`` (wall-clock since session start,
+    from ``cost.total_duration_ms`` in the stdin payload) over the JSONL
+    span between first and last assistant message — the JSONL span only
+    advances once a second request is made, so it stays at ``0s`` for the
+    first message of a session even though wall-clock has elapsed.
+    """
+    if context is not None and context.session_duration_ms is not None:
+        seconds = int(context.session_duration_ms / 1000)
+        if seconds >= 0:
+            return _format_seconds(seconds)
+    return _format_duration(totals.first_timestamp, totals.last_timestamp)
 
 
 def _format_countdown(ms: int | None) -> str | None:
@@ -304,9 +343,9 @@ def render(
                 label = f"{brl_flag}{brl_str}"
             parts_custo.append(_colorize(label, color, use_color))
 
-    duration = _format_duration(totals.first_timestamp, totals.last_timestamp)
+    duration = _resolve_duration(totals, context)
     if opts.show_duration and duration:
-        parts_custo.append(_colorize(duration, GRAY, use_color))
+        parts_custo.append(_colorize(f"{EMOJI_TIMER} {duration}", GRAY, use_color))
 
     if opts.show_minimax_quota and quota is not None and quota.source != "error":
         five_h_segment = _render_quota_segment(EMOJI_QUOTA, quota.five_hour, opts)
