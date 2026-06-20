@@ -253,7 +253,13 @@ def render(
     if opts is None:
         opts = DisplayOptions()
     use_color = _use_color(opts.color)
-    parts: list[str] = []
+    # Three logical groups, one per rendered line:
+    #   parts_id   = model + cwd + cc version
+    #   parts_uso  = tokens + context window % + MiniMax quota windows
+    #   parts_custo = cost + duration + burn rate + verbose USD
+    parts_id: list[str] = []
+    parts_uso: list[str] = []
+    parts_custo: list[str] = []
 
 
     if opts.show_model:
@@ -262,7 +268,7 @@ def render(
             model_label = f"{model_label}·{totals.last_provider}"
         if cost.unknown_models:
             model_label = f"{model_label}?"
-        parts.append(_colorize(f"[{model_label}]", CYAN, use_color))
+        parts_id.append(_colorize(f"[{model_label}]", CYAN, use_color))
 
     if opts.show_tokens:
         in_t = _format_tokens(totals.input_tokens)
@@ -270,7 +276,7 @@ def render(
         cache_t = _format_tokens(
             totals.cache_read_tokens + totals.cache_creation_tokens
         )
-        parts.append(
+        parts_uso.append(
             _colorize(f"\u2b06{in_t}", BLUE, use_color)
             + " "
             + _colorize(f"\u2b07{out_t}", MAGENTA, use_color)
@@ -286,30 +292,30 @@ def render(
 
         if billing == "free_tier":
             label = f"{brl_flag}R$0.00 (free)"
-            parts.append(_colorize(label, GRAY, use_color))
+            parts_custo.append(_colorize(label, GRAY, use_color))
         elif billing == "token_plan":
             label = f"{brl_flag}R$0.00 (quota)"
-            parts.append(_colorize(label, DIM + YELLOW, use_color))
+            parts_custo.append(_colorize(label, DIM + YELLOW, use_color))
         else:
             color = _cost_color(cost.total_cost_brl, opts)
             if opts.show_both_currencies and cost.total_cost_usd >= 0.0001:
                 label = f"{brl_flag}{brl_str} {usd_flag}{usd_str}"
             else:
                 label = f"{brl_flag}{brl_str}"
-            parts.append(_colorize(label, color, use_color))
+            parts_custo.append(_colorize(label, color, use_color))
 
     duration = _format_duration(totals.first_timestamp, totals.last_timestamp)
     if opts.show_duration and duration:
-        parts.append(_colorize(duration, GRAY, use_color))
+        parts_custo.append(_colorize(duration, GRAY, use_color))
 
     if opts.show_minimax_quota and quota is not None and quota.source != "error":
         five_h_segment = _render_quota_segment(EMOJI_QUOTA, quota.five_hour, opts)
         if five_h_segment:
-            parts.append(five_h_segment)
+            parts_uso.append(five_h_segment)
         if quota.weekly.has_limit:
             weekly_segment = _render_quota_segment(EMOJI_CALENDAR, quota.weekly, opts)
             if weekly_segment:
-                parts.append(weekly_segment)
+                parts_uso.append(weekly_segment)
 
     burn_rate: float | None = None
     if opts.show_burn_rate and duration and totals.total_tokens > 0:
@@ -328,28 +334,28 @@ def render(
         rate_str = f"{int(burn_rate)}t/m"
         if burn_rate >= opts.burn_alert_per_min:
             rate_str = f"\u26a0 {rate_str}"
-        parts.append(
+        parts_custo.append(
             _colorize(rate_str, _burn_rate_color(burn_rate, opts), use_color)
         )
 
     if opts.verbose and price is not None:
         if not opts.show_both_currencies:
             usd_str, brl_str = _format_cost(cost.total_cost_usd, cost.fx_to_brl)
-            parts.append(_colorize(f"{FLAG_US} {usd_str}", DIM, use_color))
+            parts_custo.append(_colorize(f"{FLAG_US} {usd_str}", DIM, use_color))
         if totals.cache_read_tokens + totals.cache_creation_tokens > 0:
             cache_total = totals.cache_read_tokens + totals.cache_creation_tokens
             pct = cache_total / max(totals.total_tokens, 1) * 100
             if opts.show_cache_pct and pct >= 50:
-                parts.append(
+                parts_custo.append(
                     _colorize(f"cache:{pct:.0f}%", DIM + GREEN, use_color)
                 )
 
     if context is not None:
         if context.cwd:
             short = context.cwd.replace(os.path.expanduser("~"), "~", 1)
-            parts.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
+            parts_id.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
         if context.cc_version:
-            parts.append(
+            parts_id.append(
                 _colorize(f"{EMOJI_CC} v{context.cc_version}", DIM, use_color)
             )
         if context.context_used_pct is not None:
@@ -357,7 +363,28 @@ def render(
             remaining = 100 - used
             label = f"{EMOJI_CONTEXT} {used}% usado ({remaining}% livre)"
             color = RED if used >= 90 else YELLOW if used >= 70 else GRAY
-            parts.append(_colorize(label, color, use_color))
+            parts_uso.append(_colorize(label, color, use_color))
 
+    return _format_multiline(
+        [parts_id, parts_uso, parts_custo],
+        use_color=use_color,
+    )
+
+
+def _format_multiline(
+    grouped_parts: list[list[str]],
+    *,
+    use_color: bool,
+) -> str:
+    """Join grouped parts into ``\\n``-separated lines, dropping empty groups."""
     separator = _colorize(" \u2022 ", DIM, use_color)
-    return separator.join(parts) if parts else _colorize("(empty)", DIM, use_color)
+    rendered: list[str] = []
+    for group in grouped_parts:
+        if not group:
+            continue
+        joined = separator.join(group)
+        if joined:
+            rendered.append(joined)
+    if not rendered:
+        return _colorize("(empty)", DIM, use_color)
+    return "\n".join(rendered)
