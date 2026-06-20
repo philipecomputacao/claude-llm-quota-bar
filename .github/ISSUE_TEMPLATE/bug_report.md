@@ -26,7 +26,7 @@ assignees: ''
 - **OS**: (macOS / Linux / Windows WSL)
 - **Claude Code version**: <!-- `claude --version` -->
 - **Python version**: <!-- `python3 --version` -->
-- **Provider** being tested: (MiniMax / OpenRouter / DeepSeek / Mistral / OpenAI / Codex)
+- **Provider** being tested: (Anthropic-native Claude / OpenAI direct / Codex ChatGPT / DeepSeek / Mistral / OpenRouter / MiniMax / other — leave blank if N/A; the bar works for any provider Claude Code has called)
 - **Env var set?** (yes/no — name only, not the value)
 - **Install method**: (symlink / curl one-liner)
 

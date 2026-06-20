@@ -42,4 +42,4 @@ assignees: ''
 
 ## Willing to PR?
 
-<!-- Yes / No / Maybe with help. If yes, see CONTRIBUTING.md for the adapter skeleton. -->
+<!-- Yes / No / Maybe with help. If yes, see CONTRIBUTING.md § "Adding a new quota adapter" for the skeleton matching the real QuotaProvider Protocol. -->
