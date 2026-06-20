@@ -40,7 +40,8 @@
 Native Claude Code session (no API key needed for the quota segment):
 
 ```
-[claude-sonnet-4-5·opencode] • 📁 ~/Projetos/foo • 📟 v2.1.170
+📁 ~/src/my-project
+[claude-sonnet-4-5] • 📟 v2.1.170
 ⬆1.0M ⬇48k ↻R2.8M • 🧠 12% usado (88% livre)
 🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
 ```
@@ -49,15 +50,17 @@ Routed through a third-party provider with a quota adapter enabled
 (`MINIMAX_API_KEY` set in this example):
 
 ```
-[MiniMax-M3·minimax] • 📁 ~/Projetos/foo • 📟 v2.1.170
+📁 ~/src/my-project
+[MiniMax-M3] • 📟 v2.1.170
 ⬆1.0M ⬇48k ↻R2.8M • ⏱ 40% usado (60% livre) (reset 2h48m) • 🧠 12% usado (88% livre)
 🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
 ```
 
 | Field | What it tells you |
 |---|---|
-| `[model·provider]` | Active model and the upstream that actually serves it |
-| `📁 cwd` `📟 version` | Where you are and which Claude Code build you're on |
+| `[model·provider]` | Active model and the upstream that actually serves it (omitted when already in display name) |
+| `📁 cwd` | Full working directory on its own line — never truncated |
+| `📟 vX.Y.Z` | Claude Code version (hidden for unrecognised build strings) |
 | `⬆ input  ⬇ output  ↻R cache-read` | Token usage breakdown, with cache reads shown separately (green) |
 | `⏱ X% usado (Y% livre) (reset 2h)` | Live quota from the **provider's own API** — colour-coded by usage |
 | `🧠 X% usado (Y% livre)` | Context window usage, same colour rule |
@@ -123,10 +126,10 @@ Pick **one** install method.
 
 ```bash
 git clone https://github.com/philipecomputacao/claude-llm-quota-bar.git \
-    ~/Projetos/projetos/claude-llm-quota-bar
+    ~/src/claude-llm-quota-bar
 
 mkdir -p ~/.claude/statusline
-ln -sf ~/Projetos/projetos/claude-llm-quota-bar/session_tokens.py \
+ln -sf ~/src/claude-llm-quota-bar/session_tokens.py \
        ~/.claude/statusline/session_tokens.py
 ```
 
@@ -395,21 +398,21 @@ and falls back to a static 5.20 if the API is unreachable.
 ┌────────────────────┐  stdin (JSON)   ┌────────────────────┐
 │  Claude Code TUI   │ ───────────────► │  session_tokens.py │
 └────────────────────┘                  └──────────┬──────────┘
-        ▲                                          │
-        │ renders 3 lines                           │ reads
-        │                                          ▼
-        │                                  ~/.claude/projects/<hash>/
-        │                                  <sessionId>.jsonl
-        │                                          │
-        │                              ┌───────────┴───────────┐
-        │                              ▼                       ▼
-        │                      pricing.json             lib/provider_quota.py
-        │                      (402 models)            (6 quota adapters)
-        │                              │                       │
-        │                              └───────────┬───────────┘
-        │                                          ▼
-        │                                  3 lines: id / uso / custo
-        └──────────────────────────────────────────┘
+       ▲                                          │
+       │ renders 4 lines                          │ reads
+       │                                          ▼
+       │                                  ~/.claude/projects/<hash>/
+       │                                  <sessionId>.jsonl
+       │                                          │
+       │                              ┌───────────┴───────────┐
+       │                              ▼                       ▼
+       │                      pricing.json             lib/provider_quota.py
+       │                      (402 models)            (6 quota adapters)
+       │                              │                       │
+       │                              └───────────┬───────────┘
+       │                                          ▼
+       │                          4 lines: dir / model / tokens / cost
+       └──────────────────────────────────────────┘
 ```
 
 **Flow per render** (called by Claude Code at `statusLine.refreshInterval`,

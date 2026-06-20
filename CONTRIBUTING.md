@@ -10,7 +10,7 @@ This document covers how to report bugs, request features, and contribute code
 ## 🐛 Reporting a bug
 
 1. **Search existing issues** first — including closed ones.
-2. **Collect the bar output** you're seeing (paste the 3 lines verbatim).
+2. **Collect the bar output** you're seeing (paste the lines verbatim).
 3. **Mention your platform** — Claude Code version / Python version / OS.
 4. **Mention which provider** you're testing (Anthropic-native Claude,
    OpenAI direct, Codex ChatGPT, DeepSeek, Mistral, OpenRouter, MiniMax,

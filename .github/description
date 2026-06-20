@@ -1,1 +1,1 @@
-Multi-provider Claude Code statusline — live token, cost, burn-rate and per-provider quota tracking (Anthropic / OpenAI / Codex / DeepSeek / Mistral / OpenRouter / MiniMax).
+Claude Code multi-provider statusline — live token, cost, burn-rate and provider quota (6 adapters: MiniMax, OpenRouter, DeepSeek, Mistral, OpenAI, Codex). 402 models. Drop-in Python 3 script.

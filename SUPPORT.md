@@ -11,7 +11,7 @@ often land first.
 ## Bug reports
 
 **GitHub Issues → "🐛 Bug report" template** — please include the bar
-output (paste the 3 lines verbatim), your platform, and the provider
+output (paste the lines verbatim), your platform, and the provider
 you were testing. The full checklist is in the template.
 
 ## Feature requests
