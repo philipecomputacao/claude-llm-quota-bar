@@ -6,15 +6,54 @@ versions grouped by date.
 
 ## [Unreleased]
 
+### Planned
+- (no items yet)
+
+---
+
+## [2.1.0] — 2026-06-20
+
 ### Changed
 - **Renamed the project from `llm-quota-bar` to `claude-llm-quota-bar`** to
   make the Claude Code target explicit in the repo name. GitHub redirects
   from the old URL are automatic. The runtime cache directory moved from
   `~/.cache/llm-quota-bar/` to `~/.cache/claude-llm-quota-bar/` — existing
   cache files are orphaned but regenerate on the next statusline run.
+- **Docs rewritten as Anthropic/Claude-first.** README, SECURITY,
+  CONTRIBUTING, CHANGELOG, and issue templates now lead with the native
+  Claude Code happy path and present the third-party quota adapters
+  (MiniMax, OpenRouter, DeepSeek, Mistral, OpenAI, Codex ChatGPT) as an
+  extension. Provider support is **unchanged** — all six adapters remain
+  wired and the `MINIMAX_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`,
+  `MISTRAL_API_KEY`, `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN` env vars keep
+  their names (they are public contract; renaming would silently break
+  existing user setups).
+- **Dropped the upstream-watcher.** `.github/upstream-sha` (empty) and
+  `.github/workflows/watch-cc-statusline-upstream.yml` are removed — the
+  divergence tracker hasn't fired usefully since the upstream was rewritten
+  in bash. README's "Upstream divergence" section is replaced by a
+  historical note pointing here.
+- **Fixed historical CHANGELOG entry** under `[2026-05-30]`: the Codex
+  ChatGPT adapter key is `codex_chatgpt`, not `openai_codex` (the adapter
+  is at `lib/provider_quota.py:697` with `provider_id = "codex_chatgpt"`).
+- **Fixed `CONTRIBUTING.md` adapter skeleton** to match the real
+  `QuotaProvider` Protocol at `lib/provider_quota.py:67-80` (the old
+  skeleton referenced a non-existent `QuotaStatus` dataclass and
+  `applies_to()` / `parse()` methods — the real Protocol exposes only
+  `provider_id` and `fetch()`, returning a `QuotaInfo` dataclass).
 
-### Planned
-- (no items yet)
+### Added
+- **`CLAUDE.md`** — entry points, dev commands, naming conventions, and
+  commit style for future Claude Code agents working on this repo. Required
+  by the user's central `AGENTS.md`.
+- **`CODE_OF_CONDUCT.md`** — Contributor Covenant 2.1.
+- **`SUPPORT.md`** — pointer to Discussions tab, issue templates, and the
+  private security disclosure email.
+- **`.github/description`** — one-line repo About text. Synced to GitHub
+  via `gh repo edit --description`.
+- **Troubleshooting note** in README: "`ANTHROPIC_API_KEY` doesn't enable
+  the `⏱` segment" — Anthropic exposes no per-account quota API, so this
+  env var is silently ignored as a quota key.
 
 ---
 
@@ -65,7 +104,7 @@ versions grouped by date.
   - `mistral` — `GET /v1/usage` (per-model tokens)
   - `openai_dashboard` — `GET /v1/dashboard/billing/credit_grants`
     (admin-only)
-  - `openai_codex` — JWT-decode plan badge (Plus / Pro / Team)
+  - `codex_chatgpt` — JWT-decode plan badge (Plus / Pro / Team)
 - **`provider-quota.json`** cache at `~/.cache/claude-llm-quota-bar/` (public
   data only — no keys, no request bodies).
 - **Quota label format**: `X% usado (Y% livre)` matching the `🧠`
