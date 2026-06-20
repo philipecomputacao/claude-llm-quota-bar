@@ -174,8 +174,46 @@ Para MiniMax Token Plan, mude o `billing_mode` do `MiniMax-M3` para
     ├── __init__.py
     ├── parser.py              ← JSONL → TokenTotals
     ├── pricing.py             ← modelo → CostBreakdown
+    ├── provider_quota.py      ← adapters de quota (MiniMax, OpenRouter, ...)
     └── display.py             ← tokens + custo → string colorida
 ```
+
+## Providers suportados e quota adapters
+
+O statusline mostra tokens, custo, cache R/W e burn rate para **todos os 18
+providers** do fcc-claude. O segmento `⏱` de quota aparece **apenas** quando o
+provider ativo tem um adapter vivo registrado.
+
+| Provider | Custo | Tokens | Cache R/W | Quota (`⏱`) |
+|---|---|---|---|---|
+| `nvidia_nim` | sim | sim | sim | — sem API pública |
+| `open_router` | sim | sim | sim | **sim** (credits API) |
+| `gemini` | sim | sim | sim | — sem API pública |
+| `deepseek` | sim | sim | sim | — |
+| `mistral` | sim | sim | sim | — |
+| `mistral_codestral` | sim | sim | sim | — |
+| `opencode` | sim | sim | sim | — |
+| `opencode_go` | sim | sim | sim | — |
+| `wafer` | sim | sim | sim | — |
+| `kimi` | sim | sim | sim | — |
+| `cerebras` | sim | sim | sim | — |
+| `groq` | sim | sim | sim | — |
+| `fireworks` | sim | sim | sim | — |
+| `zai` | sim | sim | sim | — |
+| `lmstudio` | sim | sim | sim | — |
+| `llamacpp` | sim | sim | sim | — |
+| `ollama` | sim | sim | sim | — |
+| `minimax` | sim | sim | sim | **sim** (Token Plan 5h+week) |
+
+### Quota adapters ativos
+
+| Provider | Endpoint | Formato exibido |
+|---|---|---|
+| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `⏱ 60% livre (reset 2h48m)` |
+| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `⏱ $7.50 credits ($2.50 used of $10.00)` |
+
+Adicionar novo adapter: implementar `QuotaProvider` em `lib/provider_quota.py` e
+registrar em `QUOTA_PROVIDERS`.
 
 ## Troubleshooting
 
@@ -203,43 +241,44 @@ Para MiniMax Token Plan, mude o `billing_mode` do `MiniMax-M3` para
 - Se ainda parecer alto, a sessão é realmente muito ativa — normal em
   tarefas de refactor grande com `MiniMax-M3`.
 
-### MiniMax quota não aparece (`⏱` ausente)
+### Quota adapter ausente (`⏱` não aparece)
 
-A barra mostra `⏱ 93% livre (reset 4h42m)` quando o modelo ativo é MiniMax e
-a Subscription Key está configurada. Se não aparece:
+A linha `⏱` só renderiza quando o provider ativo tem um adapter vivo em
+`lib/provider_quota.py::QUOTA_PROVIDERS`. Hoje: **MiniMax + OpenRouter**.
+Para os 16 providers sem adapter público (gemini, kimi, ollama, etc.), a
+linha **simplesmente some** — é o comportamento correto, não um bug.
 
-1. Verifique se `~/.fcc/.env` tem `MINIMAX_API_KEY=...` (a chave do Token Plan,
-   não a pay-as-you-go). Veja [MiniMax quota tracking](#minimax-quota-tracking).
+### MiniMax quota não aparece mesmo com `MODEL=minimax/MiniMax-M3`
+
+1. Verifique se `~/.fcc/.env` tem `MINIMAX_API_KEY=...` (Subscription Key
+   do Token Plan, não pay-as-you-go).
 2. Rode manualmente pra ver erro:
    ```bash
    python3 -c "
    import sys; sys.path.insert(0, '$HOME/Projetos/projetos/claude-code-statusline')
-   from lib.minimax_quota import fetch_minimax_quota
-   print(fetch_minimax_quota())
+   from lib.provider_quota import fetch_quota
+   print(fetch_quota('minimax'))
    "
    ```
-3. Toggle desligado: `statusline.env.json` precisa ter `"show_minimax_quota": true`.
+3. Toggle desligado: `statusline.env.json` precisa ter `"show_provider_quota": true`.
 
 ## MiniMax quota tracking
 
-Quando o modelo ativo é da MiniMax (Token Plan), a statusline consulta o
-endpoint oficial de quota e mostra o ciclo de 5 horas:
+Quando o modelo ativo é `minimax/*`, a statusline consulta o endpoint
+oficial do Token Plan e mostra o ciclo de 5 horas:
 
 ```
-[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻4.1k • 🇧🇷 R$0.00 • ⏱ 93% livre (reset 4h42m)
+[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻R4.1k • ⏱ 93% livre (reset 4h42m)
 ```
 
 - **Origem do token:** `MINIMAX_API_KEY` do `~/.fcc/.env` (reutilizado do
-  fork `free-claude-code-minimax`). Nenhuma config nova é necessária.
+  fork `free-claude-code-minimax`).
 - **Endpoint:** `GET https://www.minimax.io/v1/token_plan/remains` com
   `Authorization: Bearer <Subscription Key>`.
-- **Cache:** `~/.cache/claude-code-statusline/minimax-quota.json`, TTL 60s.
-- **Cor:** verde < 70% usado, amarelo ≥ 70%, vermelho ≥ 90% (ajustável com
-  `quota_warn_pct` / `quota_alert_pct` no `statusline.env.json`).
-- **Ciclo semanal:** aparece só quando o upstream reporta `limit > 0`
-  (MiniMax Token Plan não tem cap semanal rígido hoje; pode mudar em
-  outros providers no futuro).
-- **Desativar:** `"show_minimax_quota": false` no `statusline.env.json`.
+- **Cache:** `~/.cache/claude-code-statusline/provider-quota.json`, TTL 60s.
+- **Cor:** verde < 70% usado, amarelo ≥ 70%, vermelho ≥ 90% (ajustável via
+  `quota_warn_pct` / `quota_alert_pct`).
+- **Desativar:** `"show_provider_quota": false` no `statusline.env.json`.
 
 Para testar manualmente:
 
@@ -249,6 +288,27 @@ export KEY=$(grep MINIMAX_API_KEY ~/.fcc/.env | cut -d= -f2 | tr -d '"')
 /usr/bin/curl -s -X GET https://www.minimax.io/v1/token_plan/remains \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" | python3 -m json.tool
+```
+
+## OpenRouter credits tracking
+
+Quando o modelo ativo é `open_router/*`, a statusline consulta o endpoint
+de credits do OpenRouter e mostra o saldo restante:
+
+```
+[anthropic/claude-sonnet-4·open_router] • ⬆12k ⬇1k ↻0 • ⏱ $7.50 credits ($2.50 used of $10.00)
+```
+
+- **Origem do token:** `OPENROUTER_API_KEY` do `~/.fcc/.env` ou env var.
+- **Endpoint:** `GET https://openrouter.ai/api/v1/credits` com
+  `Authorization: Bearer <Key>`.
+- **Cache:** mesmo arquivo do MiniMax (`provider-quota.json`).
+
+Para testar manualmente:
+
+```bash
+/usr/bin/curl -s -X GET https://openrouter.ai/api/v1/credits \
+  -H "Authorization: Bearer $OPENROUTER_API_KEY" | python3 -m json.tool
 ```
 
 ## Limitações conhecidas

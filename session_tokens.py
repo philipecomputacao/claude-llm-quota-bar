@@ -31,7 +31,6 @@ sys.path.insert(0, str(THIS_DIR))
 
 from lib.display import ContextInfo, DisplayOptions, render  # noqa: E402
 from lib.fx import DEFAULT_TTL_SECONDS, resolve_rate  # noqa: E402
-from lib.minimax_quota import fetch_minimax_quota  # noqa: E402
 from lib.parser import (  # noqa: E402
     TokenTotals,
     _provider_from_model,
@@ -40,6 +39,7 @@ from lib.parser import (  # noqa: E402
     locate_session_log,
     parse_first_response_model,
 )
+from lib.provider_quota import fetch_quota  # noqa: E402
 from lib.pricing import (  # noqa: E402
     CostBreakdown,
     ModelPrice,
@@ -139,27 +139,35 @@ def _build_context_info(
     )
 
 
-def _is_minimax_active(
+def _active_quota_provider(
     totals: TokenTotals,
     fallback_model: str | None,
     std_model: str | None,
     price: ModelPrice | None,
-) -> bool:
-    """True when the active model for this statusline refresh is MiniMax.
+) -> str | None:
+    """Return the provider_id that has a live quota adapter, or ``None``.
 
-    Two signals are accepted:
-      1. The provider prefix parsed from the model id (``minimax/MiniMax-M3``
-         or ``anthropic/minimax/MiniMax-M3``).
+    Two signals are accepted, in priority order:
+      1. Provider prefix parsed from the model id (``openrouter/...``,
+         ``anthropic/openrouter/...``, or bare ``MiniMax-M3``).
       2. The ``provider`` field on the resolved pricing entry — covers bare
-         model ids like ``MiniMax-M3`` that fcc-claude logs in the JSONL
-         after stripping the gateway prefix upstream.
+         model ids that fcc-claude logs after stripping the gateway prefix.
+
+    Returns ``None`` for providers without a wired-up adapter (the statusline
+    omits the ``⏱`` segment entirely in that case).
     """
+    from lib.provider_quota import get_quota_for_provider
+
     candidate = totals.last_model or fallback_model or std_model
-    if candidate and _provider_from_model(candidate) == "minimax":
-        return True
-    if price is not None and price.provider == "minimax":
-        return True
-    return False
+    provider_id: str | None = None
+    if candidate:
+        derived = _provider_from_model(candidate)
+        if derived not in {"anthropic", "unknown"} and get_quota_for_provider(derived):
+            provider_id = derived
+    if provider_id is None and price is not None:
+        if get_quota_for_provider(price.provider):
+            provider_id = price.provider
+    return provider_id
 
 
 def _price_for_model(
@@ -244,10 +252,11 @@ def main() -> int:
 
     context = _build_context_info(stdin_hint, project_dir)
     quota = None
-    if opts.show_minimax_quota and _is_minimax_active(
+    quota_provider_id = _active_quota_provider(
         totals, fallback_model, std_model, price
-    ):
-        quota = fetch_minimax_quota()
+    )
+    if opts.show_provider_quota and quota_provider_id:
+        quota = fetch_quota(quota_provider_id)
 
     # When the JSONL has no assistant entries yet, derive provider from the
     # active model id (stdin or env) so the model label shows the real

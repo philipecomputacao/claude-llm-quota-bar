@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from .minimax_quota import QuotaInfo, WindowQuota
 from .parser import TokenTotals
 from .pricing import CostBreakdown, ModelPrice
+from .provider_quota import QuotaInfo
 
 ColorMode = Literal["auto", "always", "never"]
 
@@ -47,6 +47,7 @@ class DisplayOptions:
     show_flags: bool = True
     show_both_currencies: bool = True
     show_minimax_quota: bool = True
+    show_provider_quota: bool = True
     quota_warn_pct: float = 70.0
     quota_alert_pct: float = 90.0
     verbose: bool = False
@@ -236,20 +237,6 @@ def _cache_segment(totals: TokenTotals, use_color: bool) -> str:
     return " ".join(parts)
 
 
-def _quota_used_pct(window: WindowQuota) -> float | None:
-    """Best-effort used percentage (0-100) for a window.
-
-    Prefers the upstream ``remaining_percent`` (1 - it) when present; falls
-    back to ``used / limit`` when both are known.
-    """
-    if window.remaining_percent is not None:
-        used = 100.0 - float(window.remaining_percent)
-        return max(0.0, min(100.0, used))
-    if window.used is not None and window.limit:
-        return float(window.used) / float(window.limit) * 100.0
-    return None
-
-
 def _quota_color(used_pct: float | None, opts: DisplayOptions) -> str:
     """Color the quota segment by used percentage (green/yellow/red)."""
     if used_pct is None:
@@ -262,42 +249,28 @@ def _quota_color(used_pct: float | None, opts: DisplayOptions) -> str:
 
 
 def _render_quota_segment(
-    label_emoji: str,
-    window: WindowQuota,
+    quota: QuotaInfo,
     opts: DisplayOptions,
 ) -> str | None:
-    """Render a single quota window (``5h`` or ``week``) or return ``None``."""
-    if window is None:
+    """Render the generic ``⏱`` quota segment for any provider.
+
+    Adapters push a ``status_label`` (short badge like ``"60% livre"`` or
+    ``"$8.50 credits"``) and optional ``detail`` (e.g. ``"reset 2h48m"``).
+    The segment is skipped entirely when the adapter reports ``source="error"``
+    with no usable label, or when the upstream returned no useful data.
+    """
+    if quota is None:
         return None
-    # Nothing useful at all: skip the segment.
-    has_anything = (
-        window.remaining_percent is not None
-        or (window.used is not None and window.limit)
-        or window.ms_until_reset is not None
-        or window.reset_at is not None
-    )
-    if not has_anything:
+    if not quota.status_label or quota.status_label == "?":
         return None
 
-    used_pct = _quota_used_pct(window)
-    color = _quota_color(used_pct, opts)
+    color = _quota_color(quota.used_pct, opts)
     use_color = _use_color(opts.color)
 
-    # Percentage display: prefer the upstream remaining percent, fall back
-    # to derived used percent.
-    if window.remaining_percent is not None:
-        pct_label = f"{window.remaining_percent:.0f}% livre"
-    elif used_pct is not None:
-        pct_label = f"{used_pct:.0f}% usado"
-    else:
-        pct_label = ""
-
-    countdown = _format_countdown(window.ms_until_reset)
-    body = pct_label
-    if countdown:
-        body = f"{body} (reset {countdown})" if body else f"reset {countdown}"
-
-    label = f"{label_emoji} {body}".strip()
+    body = quota.status_label
+    if quota.detail:
+        body = f"{body} ({quota.detail})" if body else quota.detail
+    label = f"{EMOJI_QUOTA} {body}".strip()
     return _colorize(label, color, use_color)
 
 
@@ -390,14 +363,10 @@ def render(
     if opts.show_duration and duration:
         parts_custo.append(_colorize(f"{EMOJI_TIMER} {duration}", GRAY, use_color))
 
-    if opts.show_minimax_quota and quota is not None and quota.source != "error":
-        five_h_segment = _render_quota_segment(EMOJI_QUOTA, quota.five_hour, opts)
-        if five_h_segment:
-            parts_uso.append(five_h_segment)
-        if quota.weekly.has_limit:
-            weekly_segment = _render_quota_segment(EMOJI_CALENDAR, quota.weekly, opts)
-            if weekly_segment:
-                parts_uso.append(weekly_segment)
+    if opts.show_provider_quota and quota is not None and quota.source != "error":
+        quota_segment = _render_quota_segment(quota, opts)
+        if quota_segment:
+            parts_uso.append(quota_segment)
 
     burn_rate: float | None = None
     if opts.show_burn_rate and duration and totals.total_tokens > 0:
