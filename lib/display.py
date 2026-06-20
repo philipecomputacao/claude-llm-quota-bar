@@ -205,6 +205,37 @@ def _format_countdown(ms: int | None) -> str | None:
     return f"{hours}h{rem // 60}m"
 
 
+def _cache_segment(totals: TokenTotals, use_color: bool) -> str:
+    """Render the prompt-cache segment as ``↻R45k ↻W5k``.
+
+    Splits into the cheap read path (cache hits, green) and the expensive
+    write path (cache creation, gray). Segments with zero tokens are dropped
+    so a brand-new session does not show ``↻R0 ↻W0`` clutter.
+    """
+    parts: list[str] = []
+    if totals.cache_read_tokens > 0:
+        parts.append(
+            _colorize(
+                f"\u21bbR{_format_tokens(totals.cache_read_tokens)}",
+                GREEN,
+                use_color,
+            )
+        )
+    if totals.cache_creation_tokens > 0:
+        parts.append(
+            _colorize(
+                f"\u21bbW{_format_tokens(totals.cache_creation_tokens)}",
+                GRAY,
+                use_color,
+            )
+        )
+    if not parts:
+        # No cache activity in this session yet — keep the legacy single
+        # ``↻0`` marker so the line is not missing a segment entirely.
+        return _colorize("\u21bb0", GRAY, use_color)
+    return " ".join(parts)
+
+
 def _quota_used_pct(window: WindowQuota) -> float | None:
     """Best-effort used percentage (0-100) for a window.
 
@@ -327,15 +358,12 @@ def render(
     if opts.show_tokens:
         in_t = _format_tokens(totals.input_tokens)
         out_t = _format_tokens(totals.output_tokens)
-        cache_t = _format_tokens(
-            totals.cache_read_tokens + totals.cache_creation_tokens
-        )
         parts_uso.append(
             _colorize(f"\u2b06{in_t}", BLUE, use_color)
             + " "
             + _colorize(f"\u2b07{out_t}", MAGENTA, use_color)
             + " "
-            + _colorize(f"\u21bb{cache_t}", GRAY, use_color)
+            + _cache_segment(totals, use_color)
         )
 
     if opts.show_cost and price is not None:
