@@ -309,11 +309,13 @@ def render(
     if opts is None:
         opts = DisplayOptions()
     use_color = _use_color(opts.color)
-    # Three logical groups, one per rendered line:
-    #   parts_id   = model + cwd + cc version
-    #   parts_uso  = tokens + context window % + MiniMax quota windows
+    # Four logical groups, one per rendered line:
+    #   parts_id   = model + cc version
+    #   parts_dir  = cwd (full path, own line to avoid truncation)
+    #   parts_uso  = tokens + context window % + provider quota
     #   parts_custo = cost + duration + burn rate + verbose USD
     parts_id: list[str] = []
+    parts_dir: list[str] = []
     parts_uso: list[str] = []
     parts_custo: list[str] = []
 
@@ -400,12 +402,7 @@ def render(
     if context is not None:
         if context.cwd:
             short = context.cwd.replace(os.path.expanduser("~"), "~", 1)
-            # Collapse deep paths to just the leaf directory
-            if short.startswith("~/"):
-                parts = short[2:].split("/")
-                if len(parts) > 2:
-                    short = parts[-1]
-            parts_id.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
+            parts_dir.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
         if context.cc_version and _looks_like_version(context.cc_version):
             parts_id.append(
                 _colorize(f"{EMOJI_CC} v{context.cc_version}", DIM, use_color)
@@ -418,7 +415,7 @@ def render(
             parts_uso.append(_colorize(label, color, use_color))
 
     return _format_multiline(
-        [parts_id, parts_uso, parts_custo],
+        [parts_id, parts_dir, parts_uso, parts_custo],
         use_color=use_color,
     )
 
