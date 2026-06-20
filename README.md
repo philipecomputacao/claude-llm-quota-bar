@@ -6,6 +6,7 @@
 [claude-code]: https://docs.claude.com/en/docs/claude-code
 
 [![license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/philipecomputacao/llm-quota-bar/actions/workflows/ci.yml/badge.svg)](https://github.com/philipecomputacao/llm-quota-bar/actions/workflows/ci.yml)
 ![status](https://img.shields.io/badge/status-stable-brightgreen.svg)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![providers](https://img.shields.io/badge/providers-18%2B-orange.svg)
