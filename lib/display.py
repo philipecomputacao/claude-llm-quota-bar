@@ -9,10 +9,12 @@ a cost breakdown, and a few display options, and returns the final string.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from .minimax_quota import QuotaInfo, WindowQuota
 from .parser import TokenTotals
 from .pricing import CostBreakdown, ModelPrice
 
@@ -44,6 +46,9 @@ class DisplayOptions:
     show_cache_pct: bool = True
     show_flags: bool = True
     show_both_currencies: bool = True
+    show_minimax_quota: bool = True
+    quota_warn_pct: float = 70.0
+    quota_alert_pct: float = 90.0
     verbose: bool = False
     color: ColorMode = "auto"
     cost_warn_brl: float = 0.50
@@ -51,6 +56,27 @@ class DisplayOptions:
     burn_warn_per_min: int = 1500
     burn_alert_per_min: int = 5000
     fx_cache_ttl_seconds: float = 3600.0
+
+
+@dataclass(frozen=True, slots=True)
+class ContextInfo:
+    """Sidebar context rendered with emoji markers (parity with legacy cc-statusline).
+
+    All fields are optional; missing values are simply omitted from the line.
+    """
+
+    cwd: str | None = None
+    cc_version: str | None = None
+    context_used_pct: int | None = None  # 0-100, percent of context used
+
+
+# Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
+# (community ``cc-statusline`` layout) so users do not lose the visual markers.
+EMOJI_DIR = "\U0001F4C1"      # 📁
+EMOJI_CC = "\U0001F4DF"       # 📟
+EMOJI_CONTEXT = "\U0001F9E0"  # 🧠
+EMOJI_QUOTA = "\u23F1"        # ⏱
+EMOJI_CALENDAR = "\U0001F4C5" # 📅
 
 
 FLAG_BR = "\U0001F1E7\U0001F1F7"  # Brazil
@@ -121,6 +147,84 @@ def _format_duration(start: str | None, end: str | None) -> str | None:
     return f"{hours}h{rem // 60}m"
 
 
+def _format_countdown(ms: int | None) -> str | None:
+    """Format a millisecond duration as compact ``2h13m`` / ``45m`` / ``30s``."""
+    if ms is None or ms <= 0:
+        return None
+    total_seconds = int(ms / 1000)
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    if total_seconds < 3600:
+        return f"{total_seconds // 60}m"
+    hours, rem = divmod(total_seconds, 3600)
+    return f"{hours}h{rem // 60}m"
+
+
+def _quota_used_pct(window: WindowQuota) -> float | None:
+    """Best-effort used percentage (0-100) for a window.
+
+    Prefers the upstream ``remaining_percent`` (1 - it) when present; falls
+    back to ``used / limit`` when both are known.
+    """
+    if window.remaining_percent is not None:
+        used = 100.0 - float(window.remaining_percent)
+        return max(0.0, min(100.0, used))
+    if window.used is not None and window.limit:
+        return float(window.used) / float(window.limit) * 100.0
+    return None
+
+
+def _quota_color(used_pct: float | None, opts: DisplayOptions) -> str:
+    """Color the quota segment by used percentage (green/yellow/red)."""
+    if used_pct is None:
+        return GRAY
+    if used_pct >= opts.quota_alert_pct:
+        return RED
+    if used_pct >= opts.quota_warn_pct:
+        return YELLOW
+    return GREEN
+
+
+def _render_quota_segment(
+    label_emoji: str,
+    window: WindowQuota,
+    opts: DisplayOptions,
+) -> str | None:
+    """Render a single quota window (``5h`` or ``week``) or return ``None``."""
+    if window is None:
+        return None
+    # Nothing useful at all: skip the segment.
+    has_anything = (
+        window.remaining_percent is not None
+        or (window.used is not None and window.limit)
+        or window.ms_until_reset is not None
+        or window.reset_at is not None
+    )
+    if not has_anything:
+        return None
+
+    used_pct = _quota_used_pct(window)
+    color = _quota_color(used_pct, opts)
+    use_color = _use_color(opts.color)
+
+    # Percentage display: prefer the upstream remaining percent, fall back
+    # to derived used percent.
+    if window.remaining_percent is not None:
+        pct_label = f"{window.remaining_percent:.0f}% livre"
+    elif used_pct is not None:
+        pct_label = f"{used_pct:.0f}% usado"
+    else:
+        pct_label = ""
+
+    countdown = _format_countdown(window.ms_until_reset)
+    body = pct_label
+    if countdown:
+        body = f"{body} (reset {countdown})" if body else f"reset {countdown}"
+
+    label = f"{label_emoji} {body}".strip()
+    return _colorize(label, color, use_color)
+
+
 def _burn_rate_color(rate: float, opts: DisplayOptions) -> str:
     if rate >= opts.burn_alert_per_min:
         return RED
@@ -136,18 +240,21 @@ def _cost_color(brl: float, opts: DisplayOptions) -> str:
         return YELLOW
     return GREEN
 
-
 def render(
     totals: TokenTotals,
     cost: CostBreakdown,
     price: ModelPrice | None,
     opts: DisplayOptions | None = None,
+    *,
+    context: ContextInfo | None = None,
+    quota: QuotaInfo | None = None,
 ) -> str:
     """Build the final statusline string."""
     if opts is None:
         opts = DisplayOptions()
     use_color = _use_color(opts.color)
     parts: list[str] = []
+
 
     if opts.show_model:
         model_label = price.display if price else (totals.last_model or "???")
@@ -195,6 +302,15 @@ def render(
     if opts.show_duration and duration:
         parts.append(_colorize(duration, GRAY, use_color))
 
+    if opts.show_minimax_quota and quota is not None and quota.source != "error":
+        five_h_segment = _render_quota_segment(EMOJI_QUOTA, quota.five_hour, opts)
+        if five_h_segment:
+            parts.append(five_h_segment)
+        if quota.weekly.has_limit:
+            weekly_segment = _render_quota_segment(EMOJI_CALENDAR, quota.weekly, opts)
+            if weekly_segment:
+                parts.append(weekly_segment)
+
     burn_rate: float | None = None
     if opts.show_burn_rate and duration and totals.total_tokens > 0:
         active_tokens = totals.input_tokens + totals.output_tokens
@@ -227,6 +343,21 @@ def render(
                 parts.append(
                     _colorize(f"cache:{pct:.0f}%", DIM + GREEN, use_color)
                 )
+
+    if context is not None:
+        if context.cwd:
+            short = context.cwd.replace(os.path.expanduser("~"), "~", 1)
+            parts.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
+        if context.cc_version:
+            parts.append(
+                _colorize(f"{EMOJI_CC} v{context.cc_version}", DIM, use_color)
+            )
+        if context.context_used_pct is not None:
+            used = max(0, min(100, context.context_used_pct))
+            remaining = 100 - used
+            label = f"{EMOJI_CONTEXT} {used}% usado ({remaining}% livre)"
+            color = RED if used >= 90 else YELLOW if used >= 70 else GRAY
+            parts.append(_colorize(label, color, use_color))
 
     separator = _colorize(" \u2022 ", DIM, use_color)
     return separator.join(parts) if parts else _colorize("(empty)", DIM, use_color)

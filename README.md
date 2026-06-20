@@ -203,6 +203,54 @@ Para MiniMax Token Plan, mude o `billing_mode` do `MiniMax-M3` para
 - Se ainda parecer alto, a sessão é realmente muito ativa — normal em
   tarefas de refactor grande com `MiniMax-M3`.
 
+### MiniMax quota não aparece (`⏱` ausente)
+
+A barra mostra `⏱ 93% livre (reset 4h42m)` quando o modelo ativo é MiniMax e
+a Subscription Key está configurada. Se não aparece:
+
+1. Verifique se `~/.fcc/.env` tem `MINIMAX_API_KEY=...` (a chave do Token Plan,
+   não a pay-as-you-go). Veja [MiniMax quota tracking](#minimax-quota-tracking).
+2. Rode manualmente pra ver erro:
+   ```bash
+   python3 -c "
+   import sys; sys.path.insert(0, '$HOME/Projetos/projetos/claude-code-statusline')
+   from lib.minimax_quota import fetch_minimax_quota
+   print(fetch_minimax_quota())
+   "
+   ```
+3. Toggle desligado: `statusline.env.json` precisa ter `"show_minimax_quota": true`.
+
+## MiniMax quota tracking
+
+Quando o modelo ativo é da MiniMax (Token Plan), a statusline consulta o
+endpoint oficial de quota e mostra o ciclo de 5 horas:
+
+```
+[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻4.1k • 🇧🇷 R$0.00 • ⏱ 93% livre (reset 4h42m)
+```
+
+- **Origem do token:** `MINIMAX_API_KEY` do `~/.fcc/.env` (reutilizado do
+  fork `free-claude-code-minimax`). Nenhuma config nova é necessária.
+- **Endpoint:** `GET https://www.minimax.io/v1/token_plan/remains` com
+  `Authorization: Bearer <Subscription Key>`.
+- **Cache:** `~/.cache/claude-code-statusline/minimax-quota.json`, TTL 60s.
+- **Cor:** verde < 70% usado, amarelo ≥ 70%, vermelho ≥ 90% (ajustável com
+  `quota_warn_pct` / `quota_alert_pct` no `statusline.env.json`).
+- **Ciclo semanal:** aparece só quando o upstream reporta `limit > 0`
+  (MiniMax Token Plan não tem cap semanal rígido hoje; pode mudar em
+  outros providers no futuro).
+- **Desativar:** `"show_minimax_quota": false` no `statusline.env.json`.
+
+Para testar manualmente:
+
+```bash
+# Com sua Subscription Key (NÃO commitar):
+export KEY=$(grep MINIMAX_API_KEY ~/.fcc/.env | cut -d= -f2 | tr -d '"')
+/usr/bin/curl -s -X GET https://www.minimax.io/v1/token_plan/remains \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" | python3 -m json.tool
+```
+
 ## Limitações conhecidas
 
 1. **Não detecta Token Plan ativo** — você precisa setar `billing_mode` manualmente.
@@ -215,6 +263,12 @@ Para MiniMax Token Plan, mude o `billing_mode` do `MiniMax-M3` para
    200k tokens, isso não é detectado.
 5. **RefreshInterval mínimo** — Claude Code tem mínimo de 1s; valores
    menores são ignorados.
+6. **Quota MiniMax é quota units, não tokens** — o endpoint
+   `/v1/token_plan/remains` retorna `current_interval_total_count` /
+   `current_interval_usage_count` em unidades de quota do plano, não em
+   tokens literais. A barra mostra `93% livre` (do `remaining_percent`),
+   que é o sinal mais confiável; a contagem exata depende do tier (Plus /
+   Max / Ultra) e do tipo de recurso (`general`, `video`, etc.).
 
 ## Próximas melhorias (opcional)
 

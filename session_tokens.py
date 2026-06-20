@@ -29,8 +29,9 @@ from typing import Any
 THIS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(THIS_DIR))
 
-from lib.display import DisplayOptions, render  # noqa: E402
+from lib.display import ContextInfo, DisplayOptions, render  # noqa: E402
 from lib.fx import DEFAULT_TTL_SECONDS, resolve_rate  # noqa: E402
+from lib.minimax_quota import fetch_minimax_quota  # noqa: E402
 from lib.parser import (  # noqa: E402
     TokenTotals,
     _provider_from_model,
@@ -87,6 +88,58 @@ def _safe_log_path(claude_dir: Path, project_dir: str, session_id: str) -> tuple
         return None, None
     fallback_model = parse_first_response_model(fallback)
     return fallback, fallback_model
+
+
+def _build_context_info(
+    stdin_hint: dict[str, Any],
+    project_dir_fallback: str,
+) -> ContextInfo:
+    """Build :class:`ContextInfo` from Claude Code's stdin payload.
+
+    Falls back to ``CLAUDE_PROJECT_DIR`` for ``cwd`` when the stdin hint does
+    not include ``workspace.current_dir``. The cc_version is sourced from
+    ``version`` (no subprocess call needed).
+    """
+    cwd: str | None = None
+    workspace = stdin_hint.get("workspace") if isinstance(stdin_hint, dict) else None
+    if isinstance(workspace, dict):
+        cwd = workspace.get("current_dir") or workspace.get("project_dir")
+    if not cwd and isinstance(stdin_hint, dict):
+        cwd = stdin_hint.get("cwd")
+    if not cwd:
+        cwd = project_dir_fallback or None
+
+    cc_version: str | None = None
+    if isinstance(stdin_hint, dict):
+        version_field = stdin_hint.get("version")
+        if isinstance(version_field, str) and version_field:
+            cc_version = version_field
+
+    context_used_pct: int | None = None
+    if isinstance(stdin_hint, dict):
+        context_window = stdin_hint.get("context_window")
+        if isinstance(context_window, dict):
+            pct = context_window.get("used_percentage")
+            if isinstance(pct, (int, float)):
+                context_used_pct = int(round(float(pct)))
+
+    return ContextInfo(
+        cwd=cwd,
+        cc_version=cc_version,
+        context_used_pct=context_used_pct,
+    )
+
+
+def _is_minimax_active(
+    totals: TokenTotals,
+    fallback_model: str | None,
+    std_model: str | None,
+) -> bool:
+    """True when the active model for this statusline refresh is MiniMax."""
+    candidate = totals.last_model or fallback_model or std_model
+    if not candidate:
+        return False
+    return _provider_from_model(candidate) == "minimax"
 
 
 def _price_for_model(
@@ -169,7 +222,32 @@ def main() -> int:
         price = _price_for_model(last_model, table)
         cost = compute_cost(totals, table, fx.rate)
 
-    line = render(totals, cost, price, opts)
+    context = _build_context_info(stdin_hint, project_dir)
+    quota = None
+    if opts.show_minimax_quota and _is_minimax_active(totals, fallback_model, std_model):
+        quota = fetch_minimax_quota()
+
+    # When the JSONL has no assistant entries yet, derive provider from the
+    # active model id (stdin or env) so the model label shows the real
+    # upstream provider, not "anthropic" from the gateway prefix.
+    if totals.last_provider in (None, "anthropic", "unknown"):
+        candidate = totals.last_model or std_model
+        if candidate:
+            derived = _provider_from_model(candidate)
+            if derived and derived not in ("anthropic", "unknown"):
+                totals = TokenTotals(
+                    input_tokens=totals.input_tokens,
+                    output_tokens=totals.output_tokens,
+                    cache_creation_tokens=totals.cache_creation_tokens,
+                    cache_read_tokens=totals.cache_read_tokens,
+                    request_count=totals.request_count,
+                    first_timestamp=totals.first_timestamp,
+                    last_timestamp=totals.last_timestamp,
+                    last_model=totals.last_model,
+                    last_provider=derived,
+                )
+
+    line = render(totals, cost, price, opts, context=context, quota=quota)
     if fx_source == "fallback":
         line = line + " \x1b[2m(fx=fallback)\x1b[0m"
     elif fx_source == "cache" and fx.age_seconds > fx_ttl:
