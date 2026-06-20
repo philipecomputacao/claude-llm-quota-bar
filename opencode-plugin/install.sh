@@ -169,4 +169,10 @@ fi
 
 echo ""
 echo "Done. Restart OpenCode to load the plugins."
-echo "Test: /quota (toggle bar) or just chat and watch the footer."
+echo ""
+echo "What you'll see: after each model response, a 3-line toast appears"
+echo "in the top-right corner with model + tokens + cost data."
+echo ""
+echo "What you won't see (yet): the persistent footer bar and /quota"
+echo "command — OpenCode 1.17.8 doesn't ship the TUI plugin runtime."
+echo "They will activate automatically once OpenCode implements it."

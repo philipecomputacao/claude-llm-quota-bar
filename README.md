@@ -618,7 +618,7 @@ python3 -m py_compile lib/*.py
 
 ## Related projects
 
-- **[opencode-plugin][opencode-plugin]** — same statusline bar, but in
+- **[opencode-plugin][opencode-plugin]** — the same statusline bar in
   [OpenCode][oc] instead of Claude Code. Lives in this repo under
   [`opencode-plugin/`](opencode-plugin/) — server-side `llm-statusline.ts`
   + TUI plugin (`llm-statusline-tui/`) that renders a persistent 3-line
@@ -630,6 +630,20 @@ python3 -m py_compile lib/*.py
 [opencode-plugin]: ./opencode-plugin/
 [oc]: https://opencode.ai
 [fcc]: https://github.com/philipecomputacao/free-claude-code-minimax
+
+### OpenCode plugin status (2026-06)
+
+| Feature | Works today? |
+|---|---|
+| Server plugin: 3-line toast on `session.idle` | ✅ Yes |
+| Persistent bar in `home_bottom` slot | ⏳ Waiting for OpenCode TUI plugin runtime |
+| `/quota` slash command | ⏳ Same |
+
+The server plugin reuses `session_tokens.py` unchanged — same Python entry
+point, same pricing data, same provider quota adapters. Only the glue that
+delivers the bar changes between Claude Code (subprocess statusline) and
+OpenCode (toast on `session.idle`). See
+[`opencode-plugin/README.md`](opencode-plugin/) for full details.
 
 ---
 
@@ -646,3 +660,8 @@ opens a tracking issue when upstream gains new commits; nothing is auto-merged.
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
+
+## Security
+
+This repo never contains real API keys — see [SECURITY.md](SECURITY.md)
+for the full policy and runtime cache contents.

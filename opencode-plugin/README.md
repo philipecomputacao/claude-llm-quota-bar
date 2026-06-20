@@ -1,39 +1,41 @@
 # opencode-plugin — Multi-provider quota bar for OpenCode
 
-> A persistent 3-line status bar for [OpenCode][oc] that reuses the
-> [`session_tokens.py`](../session_tokens.py) statusline from the same repo.
-> Live token + cost + burn-rate + **provider quota** bar with colour-coded
-> alerts, identical to what the fcc-claude fork renders.
+> Reuses the [`session_tokens.py`](../session_tokens.py) statusline from the
+> same repo to deliver a live token + cost + burn-rate + **provider quota**
+> bar inside [OpenCode][oc]. Same data source as fcc-claude, different
+> delivery channel.
 
 [oc]: https://opencode.ai
 
-## Status (2026-06)
+## Status (2026-06, OpenCode 1.17.8)
 
-| Feature | Works in OpenCode 1.17.8? |
+| Feature | Works? |
 |---|---|
-| Server plugin (`llm-statusline.ts`) | ✅ Yes — fires 3-line toast on `session.idle` |
-| Persistent bar in `home_bottom` slot | ❌ No — TUI plugin runtime not implemented yet |
-| `/quota` slash command | ❌ No — same reason |
-| Toast with 3 lines (model + tokens + cost) | ✅ Yes — what you actually see today |
+| Server plugin: 3-line toast on every `session.idle` | ✅ Yes |
+| Persistent bar in `home_bottom` slot | ⏳ Waiting for TUI plugin runtime |
+| `/quota` slash command | ⏳ Same |
 
-The TUI plugin API (`api.slots`, `api.command`, `api.ui`) is defined in the
-SDK's `tui.d.ts` type files but **`tui.js` is empty** (no runtime shipped).
-The server-side plugin uses the `OpencodeClient` SDK (`client.tui.showToast`)
-which is fully implemented and works today.
+The OpenCode SDK ships **types** for `api.slots`, `api.command`, and
+`api.ui` in `tui.d.ts`, but `tui.js` is empty (`export {};`). The
+persistent bar and `/quota` command will activate **without code changes**
+once OpenCode ships the TUI plugin runtime.
 
-When OpenCode ships the TUI plugin runtime, the persistent bar and `/quota`
-command will start working with **zero code changes** — the plugin is already
-written and just waiting for the runtime.
+The server plugin uses the **fully-implemented** `OpencodeClient` SDK
+(`client.tui.showToast`), which is what you see today.
 
 ## What you get
 
+When you send a message in OpenCode, a toast appears (30s) with 3 lines:
+
 ```
+📊 Quota
 [MiniMax-M3·minimax] • 📁 ~/Projetos/foo • 📟 vopencode
 ⬆1.0M ⬇48k ↻R2.8M • ⏱ 40% usado (60% livre) (reset 2h48m) • 🧠 12% usado (88% livre)
 🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
 ```
 
-Three lines, persistent in the OpenCode TUI footer, polling every 3s.
+Same 3-line bar fcc-claude shows, just delivered as a toast instead of a
+persistent footer.
 
 ## How it works
 
@@ -42,77 +44,72 @@ Three lines, persistent in the OpenCode TUI footer, polling every 3s.
 │  OpenCode TUI      │ ──────────────► │  llm-statusline.ts │
 └────────────────────┘                 │  (server plugin)   │
         ▲                              └──────────┬──────────┘
-        │ renders 3 lines                         │
-        │ home_bottom slot                        │ spawns
-        │                                         ▼
+        │ shows 3-line toast                       │ spawns
+        │ (client.tui.showToast)                   ▼
         │                                ┌────────────────────┐
         │                                │ session_tokens.py  │
-        │                                │ (this repo)        │
+        │                                │ (parent repo)      │
         │                                └──────────┬──────────┘
         │                                           │ writes
         │                                           ▼
         │                                ~/.cache/llm-quota-bar/
         │                                opencode-statusline.txt
         │                                           │
-        │                                polled every 3s by
+        │                                polled every 3s by TUI plugin
+        │                                (renders 3-line bar in home_bottom
+        │                                 when TUI plugin runtime ships)
         │                                           ▼
         │                                ┌────────────────────┐
-        └────────────────────────────────│  llm-statusline-   │
-                                         │  tui/index.js      │
-                                         │  (TUI plugin)      │
+        └────────────────────────────────│ llm-statusline-tui │
+                                         │ (TUI plugin)       │
                                          └────────────────────┘
 ```
 
-**Two plugins collaborate:**
+**Two plugins, two delivery channels:**
 
-1. **Server plugin** (`plugins/llm-statusline.ts`) — listens to `session.idle`
-   events, queries real token totals from `client.session.messages()` (so we
-   don't depend on event payloads), spawns `session_tokens.py`, and writes
-   the bar to `~/.cache/llm-quota-bar/opencode-statusline.txt`.
+1. **Server plugin** (`plugins/llm-statusline.ts`) — listens to `session.idle`,
+   queries real token totals via `client.session.messages()` (not from event
+   payloads which lack tokens), spawns `session_tokens.py`, shows the
+   3-line toast via `client.tui.showToast`. **Active today.**
 
-2. **TUI plugin** (`plugins/llm-statusline-tui/index.js`) — registers a slot
-   in `home_bottom`, polls the cache file every 3s, and renders the bar with
-   `@opentui/solid` (the same renderer OpenCode uses internally).
+2. **TUI plugin** (`plugins/llm-statusline-tui/index.js`) — registers
+   `home_bottom` slot, polls the cache file every 3s, renders the bar with
+   `@opentui/solid`. Also registers `/quota` slash command. **Inactive until
+   OpenCode ships TUI plugin runtime.**
 
-The two plugins share state via the cache file — no in-memory coupling needed.
+The two share state via the cache file (`~/.cache/llm-quota-bar/opencode-statusline.txt`),
+so no in-memory coupling — you can run either independently.
 
 ## Slash command: `/quota`
 
-> ⚠️ **Not available in OpenCode 1.17.8.** See "Status" table above.
+> ⏳ **Inactive in OpenCode 1.17.8.** Will activate with the TUI runtime.
 
-When the TUI runtime ships, this will be the way to toggle the bar:
+When active, `/quota` (aliases: `/quota-toggle`, `/bar`) toggles the
+persistent bar on/off. State persists in
+`~/.cache/llm-quota-bar/bar-enabled.txt` (default: ON).
 
-```
-> /quota
-```
-
-Toggles the persistent bar on/off. Aliases: `/quota-toggle`, `/bar`. The
-state is persisted in `~/.cache/llm-quota-bar/bar-enabled.txt` (default: ON).
-
-When the bar is off, a small toast confirms: `quota bar: OFF` / `quota bar: ON`.
-
-Today, if you want to hide the toast: it auto-dismisses after 30s, or wait for
-the next `session.idle` to trigger a fresh one with a new payload.
+Today the toast auto-dismisses after 30s. A new toast fires on the next
+`session.idle` (each message after the model responds).
 
 ## Install
 
-The plugin is **not** self-installing. From the repo root:
+From the repo root:
 
 ```bash
 ./opencode-plugin/install.sh
 ```
 
-This script:
+The script is idempotent:
 
 1. Symlinks `plugins/llm-statusline.ts` → `~/.config/opencode/plugins/`
 2. Symlinks `plugins/llm-statusline-tui/` → `~/.config/opencode/plugins/`
-3. Symlinks `node_modules` from the `cc-statusline` plugin (shared
-   `solid-js` install) so the TUI plugin can resolve `solid-js/h`
+3. Symlinks `node_modules` from `~/.config/opencode/plugins/cc-statusline/`
+   (shared `solid-js` install) — the TUI plugin needs `solid-js/h` to load
 4. Patches `~/.config/opencode/opencode.jsonc` to register both plugins
 5. Backs up `opencode.jsonc` to `opencode.jsonc.bak` before patching
 
-Re-run safely — it overwrites symlinks and refuses to patch `opencode.jsonc`
-without the marker comment `// llm-quota-bar opencode plugins`.
+Re-run safely. It overwrites symlinks and skips the `opencode.jsonc` patch
+if the marker comment `// llm-quota-bar opencode plugins` is already present.
 
 ## Uninstall
 
@@ -120,19 +117,20 @@ without the marker comment `// llm-quota-bar opencode plugins`.
 ./opencode-plugin/install.sh --uninstall
 ```
 
-Removes the symlinks and the `plugin` entries from `opencode.jsonc` (restored
-from `opencode.jsonc.bak`).
+Removes the symlinks and restores `opencode.jsonc` from
+`opencode.jsonc.bak`. If the backup is missing, the script warns and
+leaves `opencode.jsonc` untouched (manual cleanup required).
 
 ## Requirements
 
-- OpenCode ≥ 1.17.0 (TUI slot API)
+- OpenCode ≥ 1.17.0 (server plugin uses `client.session.messages()` API)
 - Python 3.10+ (for `session_tokens.py`)
-- `solid-js` available via the `cc-statusline` plugin's `node_modules`
-  (auto-linked by `install.sh`)
+- `solid-js` available via `cc-statusline` plugin's `node_modules` for the
+  TUI plugin to load — only needed once the TUI runtime ships
 
 ## API keys for live quota
 
-The `⏱` segment only renders if the matching API key is set. Add to
+The `⏱` segment only renders when the matching API key is set. Add to
 `~/.zshrc` or `~/.bashrc`:
 
 ```bash
@@ -143,17 +141,39 @@ export MISTRAL_API_KEY=ms-...               # Mistral usage
 export OPENAI_API_KEY=sk-admin-...          # OpenAI credit grants (admin key)
 ```
 
-Or in `~/.fcc/.env` — the script reads both, env vars win.
+Or in `~/.fcc/.env` — `session_tokens.py` reads both, env vars win.
+
+**No keys live in this repo** — they're only referenced by name in
+`session_tokens.py` and `lib/provider_quota.py`. See [Security](#security)
+below.
+
+## Security
+
+The plugin and its parent script follow the central's secret-handling
+rules:
+
+1. **API keys live in your shell env or `~/.fcc/.env`** — never committed
+2. **All caches go to `~/.cache/llm-quota-bar/`** — gitignored by the
+   central's standard `.gitignore` (`*.cache/`, `*.env*`)
+3. **The cache file holds only public output** (3 status lines, in
+   `provider-quota.json` only `used_pct` + `status_label` + reset time —
+   no tokens, no keys, no request bodies)
+4. **`opencode debug config` exposes resolved keys** only because
+   `{env:MINIMAX_API_KEY}` is interpolated at runtime — keys themselves
+   stay in your shell, not in the committed config file
+
+If you accidentally leak a key, the central recommends
+`ferramentas/_docs/secrets.md` (TODO link once that exists).
 
 ## Files
 
 ```
 opencode-plugin/
 ├── README.md                         ← this file
-├── install.sh                        ← installer
+├── install.sh                        ← installer (idempotent)
 └── plugins/
-    ├── llm-statusline.ts             ← server plugin (events, JSONL, Python spawn)
-    └── llm-statusline-tui/           ← TUI plugin (persistent bar + /quota command)
+    ├── llm-statusline.ts             ← server plugin (active)
+    └── llm-statusline-tui/           ← TUI plugin (waiting for runtime)
         ├── package.json
         └── index.js
 ```
