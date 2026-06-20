@@ -8,6 +8,13 @@ This document covers how `claude-llm-quota-bar` handles secrets.
 that they never will. Keys live in your shell env or `~/.fcc/.env` and are
 referenced by name only.
 
+**Note on Anthropic:** Anthropic does not expose a per-account rate-limit or
+quota API. Native Claude Code sessions therefore have no `⏱` live-quota
+segment; the script falls back to graceful omission. If you route Claude
+Code through a third-party gateway (MiniMax, OpenRouter, etc.), set that
+gateway's API key instead — `ANTHROPIC_API_KEY` alone will not enable the
+`⏱` segment.
+
 ## What the repo contains
 
 | Item | Contains secrets? |
