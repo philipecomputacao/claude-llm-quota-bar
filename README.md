@@ -220,11 +220,11 @@ provider ativo tem um adapter vivo registrado.
 
 | Provider | Endpoint | Auth | Formato exibido |
 |---|---|---|---|
-| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 40% usado (reset 2h48m)` |
-| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 25% usado ($2.50 used of $10.00)` |
+| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 60% usado (40% livre) (reset 2h48m)` |
+| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 25% usado (75% livre) ($2.50 used of $10.00)` |
 | `deepseek` | `GET https://api.deepseek.com/user/balance` | `DEEPSEEK_API_KEY` (env ou `~/.fcc/.env`) | `⏱ $4.50 USD (usou $0.50 de $5.00 free)` |
 | `mistral` | `GET https://api.mistral.ai/v1/usage` | `MISTRAL_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 1.7M tokens (modelos: mistral-large-latest, mistral-small-latest)` |
-| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ 12% usado ($12.00 used of $100.00)` |
+| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ 12% usado (88% livre) ($12.00 used of $100.00)` |
 | `codex_chatgpt` | Lê `~/.codex/auth.json` e decodifica JWT (sem rede) | `~/.codex/auth.json` ou `$CODEX_ACCESS_TOKEN` | `⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)` |
 
 Aliases:
@@ -237,9 +237,9 @@ registrar em `QUOTA_PROVIDERS`.
 ## Cores do quota segment (`⏱`)
 
 Os adapters que expõem `used_pct` (MiniMax, OpenRouter, OpenAI dashboard)
-renderizam o label no formato **`X% usado`** com cor que escala
-intuitivamente: quanto maior o número, mais perto do limite, mais quente
-a cor.
+renderizam o label no formato **`X% usado (Y% livre)`** (espelhando o
+segmento `🧠` de contexto) com cor que escala intuitivamente: quanto
+maior o número, mais perto do limite, mais quente a cor.
 
 | Cor | Condição | Significado |
 |---|---|---|
@@ -251,13 +251,13 @@ Exemplos de output:
 
 ```
 # 30% usado (verde)
-⏱ 30% usado (reset 2h48m)
+⏱ 30% usado (70% livre) (reset 2h48m)
 
 # 60% usado (amarelo)
-⏱ 60% usado (reset 45m)
+⏱ 60% usado (40% livre) (reset 45m)
 
 # 85% usado (vermelho)
-⏱ 85% usado (reset 5m)
+⏱ 85% usado (15% livre) (reset 5m)
 ```
 
 Para customizar os thresholds, edite `statusline.env.json`:
@@ -379,7 +379,7 @@ Quando o modelo ativo é `minimax/*`, a statusline consulta o endpoint
 oficial do Token Plan e mostra o ciclo de 5 horas:
 
 ```
-[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻R4.1k • ⏱ 93% usado (reset 4h42m)
+[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻R4.1k • ⏱ 93% usado (7% livre) (reset 4h42m)
 ```
 
 - **Origem do token:** `MINIMAX_API_KEY` do `~/.fcc/.env` (reutilizado do
@@ -437,10 +437,10 @@ Para testar manualmente:
 6. **Quota MiniMax é quota units, não tokens** — o endpoint
    `/v1/token_plan/remains` retorna `current_interval_total_count` /
    `current_interval_usage_count` em unidades de quota do plano, não em
-   tokens literais. A barra mostra `93% usado` (calculado a partir de
-   `remaining_percent`), que é o sinal mais confiável; a contagem exata
-   depende do tier (Plus / Max / Ultra) e do tipo de recurso (`general`,
-   `video`, etc.).
+   tokens literais. A barra mostra `93% usado (7% livre)` (calculado a
+   partir de `remaining_percent`), que é o sinal mais confiável; a
+   contagem exata depende do tier (Plus / Max / Ultra) e do tipo de
+   recurso (`general`, `video`, etc.).
 
 ## Inspiração: cc-statusline upstream
 
