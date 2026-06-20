@@ -7,12 +7,17 @@ model the user has access to, then classifies each one into a pricing tier.
 Usage::
 
     python3 scripts/build_pricing.py [--out pricing.json] [--host http://127.0.0.1:8082]
+
+Auth: the script reads ``$FREE_CC_AUTH_TOKEN`` and falls back to ``"freecc"``
+(the FCC dev default — only valid when the local proxy has not been secured).
+Override the env var when running against a non-default install.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -21,7 +26,15 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_HOST = "http://127.0.0.1:8082"
-AUTH_TOKEN = "freecc"
+DEFAULT_AUTH_TOKEN = "freecc"
+
+
+def _resolve_auth_token() -> str:
+    """Return the FCC proxy auth token, preferring env over the dev default."""
+    return os.environ.get("FREE_CC_AUTH_TOKEN") or DEFAULT_AUTH_TOKEN
+
+
+AUTH_TOKEN = _resolve_auth_token()
 
 PROVIDER_ORDER = (
     "minimax",
