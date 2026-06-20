@@ -53,8 +53,8 @@ class DisplayOptions:
     color: ColorMode = "auto"
     cost_warn_brl: float = 0.50
     cost_alert_brl: float = 2.50
-    burn_warn_per_min: int = 1500
-    burn_alert_per_min: int = 5000
+    burn_warn_per_min: int = 15000
+    burn_alert_per_min: int = 50000
     fx_cache_ttl_seconds: float = 3600.0
 
 
