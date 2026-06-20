@@ -153,11 +153,13 @@ def _empty_totals() -> TokenTotals:
 def aggregate_session(jsonl_path: Path, session_id: str | None) -> TokenTotals:
     """Aggregate token usage from ``jsonl_path`` for the given ``session_id``.
 
-    If ``session_id`` is ``None`` or empty, returns an empty :class:`TokenTotals`.
-    If the file does not exist or cannot be read, returns an empty totals too.
+    If ``session_id`` is ``None`` or empty, aggregates **all** entries in the
+    file. This handles the case where Claude Code does not export
+    ``CLAUDE_SESSION_ID`` to the statusline script — the most recent JSONL
+    in the project directory is almost always the active session, so falling
+    back to "sum everything in this file" is correct and avoids losing the
+    token totals during the refresh.
     """
-    if not session_id:
-        return _empty_totals()
     if not jsonl_path.exists():
         return _empty_totals()
 
@@ -175,7 +177,7 @@ def aggregate_session(jsonl_path: Path, session_id: str | None) -> TokenTotals:
                 parsed = _parse_assistant(entry)
                 if parsed is None:
                     continue
-                if parsed.session_id != session_id:
+                if session_id and parsed.session_id != session_id:
                     continue
                 one = TokenTotals(
                     input_tokens=parsed.input_tokens,
