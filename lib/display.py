@@ -88,15 +88,6 @@ BURN_EMOJI_MID = "\u26A1"       # ⚡ active / busy
 BURN_EMOJI_HIGH = "\U0001F525"  # 🔥 heavy / hot
 
 
-# Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
-# (community ``cc-statusline`` layout) so users do not lose the visual markers.
-EMOJI_DIR = "\U0001F4C1"      # 📁
-EMOJI_CC = "\U0001F4DF"       # 📟
-EMOJI_CONTEXT = "\U0001F9E0"  # 🧠
-EMOJI_QUOTA = "\u23F1"        # ⏱
-EMOJI_CALENDAR = "\U0001F4C5" # 📅
-
-
 FLAG_BR = "\U0001F1E7\U0001F1F7"  # Brazil
 FLAG_US = "\U0001F1FA\U0001F1F8"  # United States
 
@@ -330,7 +321,8 @@ def render(
     if opts.show_model:
         model_label = price.display if price else (totals.last_model or "???")
         if totals.last_provider and totals.last_provider not in {"anthropic", "unknown"}:
-            model_label = f"{model_label}·{totals.last_provider}"
+            if totals.last_provider.lower() not in model_label.lower():
+                model_label = f"{model_label}·{totals.last_provider}"
         if cost.unknown_models:
             model_label = f"{model_label}?"
         parts_id.append(_colorize(f"[{model_label}]", CYAN, use_color))
@@ -408,6 +400,11 @@ def render(
     if context is not None:
         if context.cwd:
             short = context.cwd.replace(os.path.expanduser("~"), "~", 1)
+            # Collapse deep paths to just the leaf directory
+            if short.startswith("~/"):
+                parts = short[2:].split("/")
+                if len(parts) > 2:
+                    short = parts[-1]
             parts_id.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
         if context.cc_version and _looks_like_version(context.cc_version):
             parts_id.append(
