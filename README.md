@@ -24,8 +24,8 @@
 - 🧠 **Context window %** + burn-rate emoji (`🧊` / `⚡` / `🔥`) at a glance.
 - 🔌 **402 models** with auto-pricing from upstream `pricing.json`.
 - 🪟 **Drop-in statusline script**: invoked by Claude Code as a Python
-  subprocess every few seconds — zero network ports, zero background
-  daemons.
+  subprocess on every refresh tick — zero daemons, no background
+  service to install.
 - 🔒 **Zero secrets in repo** — keys live in your shell env or `~/.fcc/.env`
   and are referenced by name only. See [SECURITY.md](SECURITY.md).
 
@@ -304,11 +304,10 @@ fall back to the defaults in `lib/display.py::DisplayOptions`.
   "show_cost":          true,   // 🇧🇷 R$ / 🇺🇸 $ on line 3
   "show_duration":      true,   // ⌛ wall-clock duration
   "show_burn_rate":     true,   // ⚡ tokens/minute
-  "show_cache_pct":     true,   // cache hit ratio (TODO)
+  "show_cache_pct":     true,   // cache hit ratio
   "show_flags":         true,
   "show_both_currencies": true, // show 🇧🇷 + 🇺🇸 side by side
   "show_provider_quota":   true, // ⏱ live quota segment
-  "show_minimax_quota":     true, // legacy alias for above
 
   "quota_warn_pct":  60,        // yellow at 60% quota used
   "quota_alert_pct": 85,        // red    at 85% quota used
@@ -382,7 +381,8 @@ and falls back to a static 5.20 if the API is unreachable.
         └──────────────────────────────────────────┘
 ```
 
-**Flow per render** (called on every keystroke after a model response):
+**Flow per render** (called by Claude Code at `statusLine.refreshInterval`,
+default 5 s — and immediately after each model response):
 
 1. **Stdin parse** — Claude Code pipes a JSON payload with model id, working dir,
    version, and the cumulative session cost
@@ -591,7 +591,7 @@ with open(path, 'w') as f:
         'timestamp': '2026-06-20T13:00:00.000Z',
         'message': {
             'role': 'assistant',
-            'model': 'minimax/MiniMax-M3',
+            'model': 'anthropic/minimax/MiniMax-M3',
             'usage': {
                 'input_tokens': 1234, 'output_tokens': 567,
                 'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0,
