@@ -109,6 +109,10 @@ else
   echo "    Run: cd $TUI_PLUGIN && npm install"
 fi
 
+# Note: the TUI plugin only works once OpenCode implements the TUI plugin
+# runtime (tui.js is empty as of 1.17.8). Until then, the server plugin
+# (llm-statusline.ts) is what actually delivers the bar via toast.
+
 # ---------------------------------------------------------------------------
 # Install: patch opencode.jsonc
 # ---------------------------------------------------------------------------

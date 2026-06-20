@@ -7,6 +7,24 @@
 
 [oc]: https://opencode.ai
 
+## Status (2026-06)
+
+| Feature | Works in OpenCode 1.17.8? |
+|---|---|
+| Server plugin (`llm-statusline.ts`) | ✅ Yes — fires 3-line toast on `session.idle` |
+| Persistent bar in `home_bottom` slot | ❌ No — TUI plugin runtime not implemented yet |
+| `/quota` slash command | ❌ No — same reason |
+| Toast with 3 lines (model + tokens + cost) | ✅ Yes — what you actually see today |
+
+The TUI plugin API (`api.slots`, `api.command`, `api.ui`) is defined in the
+SDK's `tui.d.ts` type files but **`tui.js` is empty** (no runtime shipped).
+The server-side plugin uses the `OpencodeClient` SDK (`client.tui.showToast`)
+which is fully implemented and works today.
+
+When OpenCode ships the TUI plugin runtime, the persistent bar and `/quota`
+command will start working with **zero code changes** — the plugin is already
+written and just waiting for the runtime.
+
 ## What you get
 
 ```
@@ -60,6 +78,10 @@ The two plugins share state via the cache file — no in-memory coupling needed.
 
 ## Slash command: `/quota`
 
+> ⚠️ **Not available in OpenCode 1.17.8.** See "Status" table above.
+
+When the TUI runtime ships, this will be the way to toggle the bar:
+
 ```
 > /quota
 ```
@@ -68,6 +90,9 @@ Toggles the persistent bar on/off. Aliases: `/quota-toggle`, `/bar`. The
 state is persisted in `~/.cache/llm-quota-bar/bar-enabled.txt` (default: ON).
 
 When the bar is off, a small toast confirms: `quota bar: OFF` / `quota bar: ON`.
+
+Today, if you want to hide the toast: it auto-dismisses after 30s, or wait for
+the next `session.idle` to trigger a fresh one with a new payload.
 
 ## Install
 

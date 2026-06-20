@@ -45,14 +45,14 @@ const tuiPlugin = async (api) => {
     enabled = !enabled
     writeEnabled(enabled)
     setIsEnabled(enabled)
-    api.tui.showToast({
-      body: {
+    try {
+      api.ui.toast({
         message: enabled ? "quota bar: ON" : "quota bar: OFF",
-        variant: "info",
         title: enabled ? "📊 Quota" : "📊 Quota (off)",
+        variant: "info",
         duration: 4000,
-      },
-    }).catch(() => {})
+      })
+    } catch { /* toast API might not be ready */ }
   }
 
   // Register /quota slash command
