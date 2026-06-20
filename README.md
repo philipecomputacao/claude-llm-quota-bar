@@ -203,7 +203,7 @@ ever called. Pricing is read from `pricing.json` (402 models, 5 direct providers
 
 | Provider | Cost | Tokens | Cache R/W | Quota (`⏱`) |
 |---|---|---|---|---|
-| Claude (native) | ✅ | ✅ | ✅ | — (Anthropic exposes no per-account quota API) |
+| Claude (native) | ✅ | ✅ | ✅ | — ¹ |
 | `minimax` | ✅ | ✅ | ✅ | **✅** (Token Plan 5h + weekly) |
 | `open_router` | ✅ | ✅ | ✅ | **✅** (credits API) |
 | `opencode` | ✅ | ✅ | ✅ | — (gateway) |
@@ -219,6 +219,7 @@ ever called. Pricing is read from `pricing.json` (402 models, 5 direct providers
 | ChatGPT via Codex (`gpt-*` + `codex login`) | ✅ | ✅ | ✅ | **✅** (plan badge) |
 
 — = no live quota API; the `⏱` segment is omitted silently.
+¹ Anthropic exposes no per-account rate-limit endpoint, so `⏱` is never shown for native Claude sessions.
 
 ---
 
