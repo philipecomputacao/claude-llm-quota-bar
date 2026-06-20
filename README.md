@@ -1,471 +1,644 @@
 # claude-code-statusline
 
-Statusline custom para Claude Code que mostra **tokens e custo estimado em
-tempo real**, mesmo se você trocar de provider no meio da sessão.
+> **A multi-provider statusline script for [Claude Code][claude-code] — and any TUI
+> that can spawn a Python process (OpenCode, Zed, custom editors…).**
+> Live token + cost + burn-rate + **provider quota** bar with colour-coded alerts.
 
-Funciona com o Claude Code puro, `fcc-claude` (free-claude-code), ou qualquer
-wrapper que use o formato de log JSONL padrão do Claude Code.
+[claude-code]: https://docs.claude.com/en/docs/claude-code
 
-## O que mostra
+[![license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+![status](https://img.shields.io/badge/status-stable-brightgreen.svg)
+![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![providers](https://img.shields.io/badge/providers-18%2B-orange.svg)
 
-Formato compacto (default):
+---
+
+## What you get
 
 ```
-[MiniMax-M3·minimax] • ⬆12.3k ⬇3.4k ↻13.2k • 🇧🇷 R$0.42 🇺🇸 $0.08 • 18m • 65t/m
+[MiniMax-M3·minimax] • 📁 ~/Projetos/foo • 📟 v2.1.170
+⬆1.0M ⬇48k ↻R2.8M • ⏱ 40% usado (60% livre) (reset 2h48m) • 🧠 12% usado (88% livre)
+🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
 ```
 
-| Campo | Significado |
+| Field | What it tells you |
 |---|---|
-| `[MiniMax-M3·minimax]` | modelo + provider ativo |
-| `⬆12.3k` | tokens de input somados na sessão |
-| `⬇3.4k` | tokens de output |
-| `↻13.2k` | cache_read + cache_creation (leitura de cache) |
-| `🇧🇷 R$0.42` | custo estimado em BRL (cotação do dia) |
-| `🇺🇸 $0.08` | mesmo custo em USD |
-| `18m` | duração da sessão |
-| `65t/m` | burn rate (input+output por minuto) |
+| `[model·provider]` | Active model and the upstream that actually serves it |
+| `📁 cwd` `📟 version` | Where you are and which Claude Code build you're on |
+| `⬆ input  ⬇ output  ↻R cache-read` | Token usage breakdown, with cache reads shown separately (green) |
+| `⏱ X% usado (Y% livre) (reset 2h)` | Live quota from the **provider's own API** — colour-coded by usage |
+| `🧠 X% usado (Y% livre)` | Context window usage, same colour rule |
+| `🇧🇷 R$ X  🇺🇸 $ Y` | Cost in both currencies (FX rate cached) |
+| `⌛ 25m` | Wall-clock session duration |
+| `⚡ 42951t/m` | Burn rate with 🧊 / ⚡ / 🔥 emoji by tier |
 
-Cores (ANSI, desativáveis via `STATUSLINE_COLOR=never`):
+All segments are independently toggleable. All thresholds are configurable.
 
-- **Verde**: custo < R$ 0.50, burn rate < 1500 t/m
-- **Amarelo**: R$ 0.50–2.50, 1500–5000 t/m
-- **Vermelho**: ≥ R$ 2.50, ≥ 5000 t/m
-- **Cinza**: free tier ou Token Plan (sem custo monetário)
-- **Ciano** no `[modelo·provider]`: destaca o provider atual
+---
 
-## Como funciona
+## Why this exists
 
-1. Claude Code loga cada mensagem do assistant em JSONL
-   (`~/.claude/projects/<hash>/<session-id>.jsonl`)
-2. Claude Code executa a `statusLine.command` periodicamente
-   (configurável em `refreshInterval`)
-3. Script Python:
-   - lê o JSONL da sessão atual (via `$CLAUDE_SESSION_ID`)
-   - soma `input_tokens`, `output_tokens`, `cache_creation`, `cache_read`
-   - identifica o último modelo (pode ter trocado no meio)
-   - calcula custo via `pricing.json`
-   - formata string colorida e printa em stdout
+Claude Code's built-in statusline is a one-liner with the model name. If you:
 
-**Latência:** ~50ms por execução (cold start do Python). O Claude Code
-normalmente cacheia o processo, então na prática fica < 20ms.
+- hop between **18+ LLM providers** (Claude, MiniMax, OpenRouter, OpenAI, Codex,
+  DeepSeek, Mistral, Groq, Cerebras, Fireworks, ZAI, Kimi, NVIDIA NIM, Ollama,
+  LlamaCPP, LMStudio, Wafer, …) and want to track **per-provider quota** in real time
+- burn through **MiniMax Token Plan** windows and need to know exactly when the 5h
+  counter resets
+- run on **OpenRouter credits** and need a glance-able `$2.50 used of $10.00`
+- use **ChatGPT Plus/Pro via Codex CLI** and want your plan badge in the bar
+- want to see **context window %** alongside the bar (Claude Code doesn't show this)
+- are cost-conscious and need **BRL ↔ USD** with a cached FX rate
 
-## Instalação
+…this script is for you. It started as a fork of [Miluer-tcq/cc-statusline][upstream-cn]
+but the upstream has since been rewritten in bash; this repo stays on **Python 3** with
+first-class multi-provider quota tracking.
+
+[upstream-cn]: https://github.com/Miluer-tcq/cc-statusline
+
+---
+
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Providers supported](#providers-supported)
+- [Quota adapters](#quota-adapters)
+- [Colour rules](#colour-rules)
+- [Configuration](#configuration)
+- [How it works](#how-it-works)
+- [Adding a new provider](#adding-a-new-provider)
+- [Adding a new quota adapter](#adding-a-new-quota-adapter)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
+
+---
+
+## Quick start
+
+### 1. Install
+
+Pick **one** install method.
+
+#### Symlink (recommended for development)
 
 ```bash
-# 1. Clonar/copiar o projeto para ~/Projetos/projetos/claude-code-statusline
-#    (já está feito se você usou o setup da central)
+git clone https://github.com/philipecomputacao/claude-code-statusline.git \
+    ~/Projetos/projetos/claude-code-statusline
 
-# 2. Criar symlink (já feito pelo setup, mas caso precise refazer):
-rm -rf ~/.claude/statusline
-ln -s ~/Projetos/projetos/claude-code-statusline ~/.claude/statusline
+mkdir -p ~/.claude/statusline
+ln -sf ~/Projetos/projetos/claude-code-statusline/session_tokens.py \
+       ~/.claude/statusline/session_tokens.py
+```
 
-# 3. Adicionar em ~/.claude/settings.json:
+#### Direct copy (no symlink)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/philipecomputacao/claude-code-statusline/main/session_tokens.py \
+    -o ~/.claude/statusline/session_tokens.py
+chmod +x ~/.claude/statusline/session_tokens.py
+```
+
+### 2. Wire it into Claude Code
+
+Edit `~/.claude/settings.local.json` (or `~/.claude/settings.json` for the global one):
+
+```json
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 ~/.claude/statusline/session_tokens.py",
-    "refreshInterval": 5000
-  }
-}
-
-# 4. Reiniciar Claude Code (se estiver aberto)
-```
-
-## Configuração de display (opcional)
-
-Crie `~/.claude/statusline/statusline.env.json` para customizar o que
-aparece e os thresholds de alerta:
-
-```json
-{
-  "show_provider": true,
-  "show_model": true,
-  "show_tokens": true,
-  "show_cost": true,
-  "show_duration": true,
-  "show_burn_rate": true,
-  "show_cache_pct": true,
-  "show_flags": true,
-  "show_both_currencies": true,
-  "verbose": false,
-  "color": "auto",
-  "cost_warn_brl": 0.50,
-  "cost_alert_brl": 2.50,
-  "burn_warn_per_min": 1500,
-  "burn_alert_per_min": 5000,
-  "fx_cache_ttl_seconds": 3600
-}
-```
-
-| Opção | Default | Significado |
-|---|---|---|
-| `show_flags` | `true` | Mostra bandeirinhas 🇧🇷 🇺🇸 |
-| `show_both_currencies` | `true` | Mostra BRL e USD juntos |
-| `verbose` | `false` | Se `true`, mostra USD também (se `show_both_currencies=false`) |
-| `color` | `"auto"` | `"always"`, `"auto"` ou `"never"` |
-| `cost_warn_brl` | 0.50 | Cor amarela a partir desse valor |
-| `cost_alert_brl` | 2.50 | Cor vermelha a partir desse valor |
-| `burn_warn_per_min` | 1500 | Burn rate amarelo (tokens/min) |
-| `burn_alert_per_min` | 5000 | Burn rate vermelho (com prefixo `⚠`) |
-| `fx_cache_ttl_seconds` | 3600 | TTL do cache de cotação (1h) |
-
-## Câmbio de moeda (USD ↔ BRL)
-
-A statusline busca a cotação do dólar em tempo real via **AwesomeAPI**
-(`https://economia.awesomeapi.com.br/last/USD-BRL`), gratuita e sem auth.
-
-- **Primeira execução:** busca na API, salva em `~/.cache/claude-code-statusline/fx.json`
-- **Execuções seguintes (até 1h):** lê do cache (não chama rede)
-- **API fora do ar:** fallback para `fx_to_brl` definido em `pricing.json`
-- **Statusline mostra `(fx=fallback)` ou `(fx=2.3h)` no fim** se a cotação estiver velha ou vier de fallback
-
-A cotação exibida é o **`bid`** (preço de compra) — convenção do mercado
-câmbio brasileiro. Se preferir usar **mid** (média entre bid e ask),
-edite `lib/fx.py`.
-
-## Customizando preços (pricing.json)
-
-Edite `pricing.json` para adicionar novos modelos ou atualizar preços.
-
-```json
-{
-  "currency": "USD",
-  "fx_to_brl": 5.20,
-  "models": {
-    "minimax/MiniMax-M3": {
-      "provider": "minimax",
-      "display": "MiniMax-M3",
-      "input": 0.21,
-      "output": 0.84,
-      "cache_read": 0.02,
-      "cache_write": 0.21,
-      "unit": "per_million_tokens",
-      "billing_mode": "pay_as_you_go"
-    }
-  },
-  "fallback": {
-    "provider": "unknown",
-    "display": "???",
-    "input": 0.0, "output": 0.0,
-    "cache_read": 0.0, "cache_write": 0.0,
-    "billing_mode": "unknown"
+    "command": "python3 ~/.claude/statusline/session_tokens.py"
   }
 }
 ```
 
-`billing_mode` controla como o custo aparece:
+Restart Claude Code. You should see the new bar immediately.
 
-- `"pay_as_you_go"` (default) — calcula USD × FX, mostra em BRL colorido
-- `"free_tier"` — mostra `R$ 0.00 (free)` em cinza
-- `"token_plan"` — mostra `R$ 0.00 (quota)` em amarelo dim (consome quota do plano)
+### 3. (Optional) Set API keys for live quota
 
-Para MiniMax Token Plan, mude o `billing_mode` do `MiniMax-M3` para
-`"token_plan"` se quiser refletir que a Subscription Key usa quota.
-
-## Estrutura do projeto
-
-```
-~/Projetos/projetos/claude-code-statusline/
-├── README.md                  ← você está aqui
-├── pricing.json               ← tabela de preços
-├── statusline.env.json        ← (opcional) toggles de display
-├── session_tokens.py          ← entry point
-└── lib/
-    ├── __init__.py
-    ├── parser.py              ← JSONL → TokenTotals
-    ├── pricing.py             ← modelo → CostBreakdown
-    ├── provider_quota.py      ← adapters de quota (MiniMax, OpenRouter, ...)
-    └── display.py             ← tokens + custo → string colorida
-```
-
-## Providers suportados e quota adapters
-
-O statusline mostra tokens, custo, cache R/W e burn rate para **todos os 18
-providers** do fcc-claude. O segmento `⏱` de quota aparece **apenas** quando o
-provider ativo tem um adapter vivo registrado.
-
-| Provider | Custo | Tokens | Cache R/W | Quota (`⏱`) |
-|---|---|---|---|---|
-| `nvidia_nim` | sim | sim | sim | — sem API pública |
-| `open_router` | sim | sim | sim | **sim** (credits API) |
-| `gemini` | sim | sim | sim | — sem API pública |
-| `deepseek` | sim | sim | sim | **sim** (`/user/balance`) |
-| `mistral` | sim | sim | sim | **sim** (`/v1/usage`) |
-| `mistral_codestral` | sim | sim | sim | **sim** (via alias → `mistral`) |
-| `opencode` | sim | sim | sim | — |
-| `opencode_go` | sim | sim | sim | — |
-| `wafer` | sim | sim | sim | — |
-| `kimi` | sim | sim | sim | — |
-| `cerebras` | sim | sim | sim | — |
-| `groq` | sim | sim | sim | — |
-| `fireworks` | sim | sim | sim | — |
-| `zai` | sim | sim | sim | — |
-| `lmstudio` | sim | sim | sim | — |
-| `llamacpp` | sim | sim | sim | — |
-| `ollama` | sim | sim | sim | — |
-| `minimax` | sim | sim | sim | **sim** (Token Plan 5h+week) |
-| OpenAI (admin) | sim | sim | sim | **sim** (`/v1/dashboard/billing/credit_grants`) |
-
-> **Codex / ChatGPT Plus-Pro-Business-Edu-Enterprise:** detecta automaticamente
-> quando o model ativo começa com `gpt-` ou `o1`-`o5` E existe `~/.codex/auth.json`
-> (do `codex login`) com JWT válido. Mostra o plano + limite conhecido, sem
-> usage real (OpenAI não expõe subscription quota via API pública).
-> 
-> **OpenAI admin dashboard (gpt-/o1-/o3-/etc sem codex):** ativa quando o
-> model tem shape Codex mas o Codex auth NÃO está presente E `OPENAI_API_KEY`
-> está set. Requer **admin key** (sk- regular retorna 403; o adapter omite o
-> segmento nesse caso).
-
-### Quota adapters ativos
-
-| Provider | Endpoint | Auth | Formato exibido |
-|---|---|---|---|
-| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 60% usado (40% livre) (reset 2h48m)` |
-| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 25% usado (75% livre) ($2.50 used of $10.00)` |
-| `deepseek` | `GET https://api.deepseek.com/user/balance` | `DEEPSEEK_API_KEY` (env ou `~/.fcc/.env`) | `⏱ $4.50 USD (usou $0.50 de $5.00 free)` |
-| `mistral` | `GET https://api.mistral.ai/v1/usage` | `MISTRAL_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 1.7M tokens (modelos: mistral-large-latest, mistral-small-latest)` |
-| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ 12% usado (88% livre) ($12.00 used of $100.00)` |
-| `codex_chatgpt` | Lê `~/.codex/auth.json` e decodifica JWT (sem rede) | `~/.codex/auth.json` ou `$CODEX_ACCESS_TOKEN` | `⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)` |
-
-Aliases:
-* `codestral` → `mistral` (o gateway `codestral` do fcc-claude atinge o
-  mesmo backend Mistral, então o uso aparece no `/v1/usage` da Mistral).
-
-Adicionar novo adapter: implementar `QuotaProvider` em `lib/provider_quota.py` e
-registrar em `QUOTA_PROVIDERS`.
-
-## Cores do quota segment (`⏱`)
-
-Os adapters que expõem `used_pct` (MiniMax, OpenRouter, OpenAI dashboard)
-renderizam o label no formato **`X% usado (Y% livre)`** (espelhando o
-segmento `🧠` de contexto) com cor que escala intuitivamente: quanto
-maior o número, mais perto do limite, mais quente a cor.
-
-| Cor | Condição | Significado |
-|---|---|---|
-| 🟢 verde | `used_pct < 60%` | Saudável |
-| 🟡 amarelo | `60% ≤ used_pct < 85%` | Warning — começa a apertar |
-| 🔴 vermelho | `used_pct ≥ 85%` | Alerta — perto do limite |
-
-Exemplos de output:
-
-```
-# 30% usado (verde)
-⏱ 30% usado (70% livre) (reset 2h48m)
-
-# 60% usado (amarelo)
-⏱ 60% usado (40% livre) (reset 45m)
-
-# 85% usado (vermelho)
-⏱ 85% usado (15% livre) (reset 5m)
-```
-
-Para customizar os thresholds, edite `statusline.env.json`:
-
-```json
-{
-  "quota_warn_pct": 60,    // amarelo começa aqui (default)
-  "quota_alert_pct": 85    // vermelho começa aqui (default)
-}
-```
-
-Para desativar as cores: `"color": "never"` no `statusline.env.json`
-(também remove as cores do restante da statusline).
-
-Provedores sem `used_pct` (DeepSeek balance absoluto, Mistral sem hard
-limit, Codex ChatGPT estático) continuam com a cor cinza neutra.
-
-## OpenAI / Codex ChatGPT plan tracking
-
-Quando o model ativo é da família OpenAI GPT/o-series (`gpt-5`, `gpt-4o`,
-`gpt-5-codex`, `o3`, etc.) E o usuário está logado no Codex CLI
-(`codex login` com ChatGPT Plus/Pro/Business/Edu/Enterprise), a statusline
-mostra o plano detectado:
-
-```
-[gpt-5-codex] • ⬆4.5k ⬇1.2k ↻R12k • ⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)
-```
-
-- **Origem do token:** lê `~/.codex/auth.json` (escrito pelo `codex login`).
-  Também aceita `$CODEX_ACCESS_TOKEN` env var.
-- **Endpoint:** nenhum — o statusline decodifica o JWT salvo localmente
-  (sem chamada de rede). O Codex já gravou o token após OAuth.
-- **Claim usada:** `https://api.openai.com/auth.chatgpt_plan_type` no payload
-  do JWT, parseada conforme `codex-rs/login/src/token_data.rs`.
-- **Limites conhecidos** (tabela hardcoded — OpenAI pode mudar):
-
-  | Plano | Limite exibido |
-  |---|---|
-  | `free` | `3 msgs / 40h` |
-  | `plus` | `80 msgs / 3h` |
-  | `pro` | `500 msgs / 3h` |
-  | `business` | `100 msgs / 3h` |
-  | `enterprise` | `1000 msgs / 3h` |
-  | `edu` | `50 msgs / 3h` |
-  | `team` | `100 msgs / 3h` |
-  | _outros_ | `limite desconhecido` |
-
-- **Sem usage real:** OpenAI **não expõe** quota restante de subscription
-  via API pública. Os headers `x-ratelimit-*` em responses são de tier de
-  API key, não de subscription. Por isso o adapter mostra só o **limite
-  estático** do plano + nota `limite OpenAI pode mudar`.
-- **Sem countdown:** reset windows da subscription não são documentados.
-- **Segurança:** decodificamos o JWT **sem verificar assinatura**. Usamos só
-  pra extrair claim informativa (chatgpt_plan_type) — jamais pra autorização.
-  É o mesmo padrão que o `codex login status` faz internamente.
-- **Cache:** `~/.cache/claude-code-statusline/provider-quota.json`, TTL 60s.
-
-Para testar manualmente:
+The `⏱` segment only renders if the matching API key is set. Add to your shell rc:
 
 ```bash
-# 1. Login no Codex CLI
-codex login   # segue fluxo OAuth
-
-# 2. Rode o script diretamente
-python3 ~/.claude/statusline/session_tokens.py
-# Vai detectar ~/.codex/auth.json e mostrar o plano
+# ~/.zshrc or ~/.bashrc
+export MINIMAX_API_KEY=sk-cp-...           # MiniMax Token Plan
+export OPENROUTER_API_KEY=sk-or-...         # OpenRouter credits
+export DEEPSEEK_API_KEY=sk-...              # DeepSeek balance
+export MISTRAL_API_KEY=ms-...               # Mistral usage
+export OPENAI_API_KEY=sk-admin-...          # OpenAI credit grants (admin key)
 ```
+
+Or in `~/.fcc/.env` (the script reads both — env vars win):
+
+```bash
+# ~/.fcc/.env
+MINIMAX_API_KEY=sk-cp-...
+OPENROUTER_API_KEY=sk-or-...
+```
+
+Providers without a key simply **omit** the `⏱` segment — no error, no noise.
+
+### 4. (Optional) Customise the bar
+
+Copy the bundled config to your home dir and edit:
+
+```bash
+cp statusline.env.json ~/.claude/statusline.env.json
+$EDITOR ~/.claude/statusline.env.json
+```
+
+See [Configuration](#configuration) for the full list of options.
+
+---
+
+## Providers supported
+
+The statusline renders cleanly for **any** model the active Claude Code session has
+ever called. Pricing is read from `pricing.json` (402 models, 5 direct providers
++ openrouter gateway with hundreds of upstream models).
+
+| Provider | Cost | Tokens | Cache R/W | Quota (`⏱`) |
+|---|---|---|---|---|
+| Claude (native) | ✅ | ✅ | ✅ | — |
+| `minimax` | ✅ | ✅ | ✅ | **✅** (Token Plan 5h + weekly) |
+| `open_router` | ✅ | ✅ | ✅ | **✅** (credits API) |
+| `opencode` | ✅ | ✅ | ✅ | — (gateway) |
+| `opencode_go` | ✅ | ✅ | ✅ | — (gateway) |
+| `deepseek` | ✅ | ✅ | ✅ | **✅** (`/user/balance`) |
+| `mistral` / `codestral` | ✅ | ✅ | ✅ | **✅** (`/v1/usage`) |
+| `nvidia_nim` | ✅ | ✅ | ✅ | — |
+| `gemini` | ✅ | ✅ | ✅ | — |
+| `groq`, `cerebras`, `fireworks`, `zai` | ✅ | ✅ | ✅ | — |
+| `kimi`, `wafer` | ✅ | ✅ | ✅ | — |
+| `ollama`, `llamacpp`, `lmstudio` | ✅ | ✅ | ✅ | — (local) |
+| OpenAI direct (`gpt-*`, `o1-*`, `o3-*`, `o4-*`) | ✅ | ✅ | ✅ | **✅** (admin key, credit grants) |
+| ChatGPT via Codex (`gpt-*` + `codex login`) | ✅ | ✅ | ✅ | **✅** (plan badge) |
+
+— = no live quota API; the `⏱` segment is omitted silently.
+
+---
+
+## Quota adapters
+
+Six quota adapters are wired up. The bar shows a single `⏱` segment for the **active**
+provider's adapter; the segment is omitted if no adapter matches.
+
+| Provider | Endpoint | Auth | Format |
+|---|---|---|---|
+| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env or `~/.fcc/.env`) | `⏱ 40% usado (60% livre) (reset 2h48m)` |
+| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` | `⏱ 25% usado (75% livre) ($2.50 used of $10.00)` |
+| `deepseek` | `GET https://api.deepseek.com/user/balance` | `DEEPSEEK_API_KEY` | `⏱ $4.50 USD (usou $0.50 de $5.00 free)` |
+| `mistral` | `GET https://api.mistral.ai/v1/usage` | `MISTRAL_API_KEY` | `⏱ 1.7M tokens (modelos: mistral-large-latest, mistral-small-latest)` |
+| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ 12% usado (88% livre) ($12.00 used of $100.00)` |
+| `codex_chatgpt` | reads `~/.codex/auth.json`, decodes JWT (no network) | `~/.codex/auth.json` or `$CODEX_ACCESS_TOKEN` | `⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)` |
+
+**Aliases:**
+- `codestral` → `mistral` (the fcc-claude `codestral` gateway hits the same
+  Mistral backend, so its usage shows up in Mistral's `/v1/usage`).
+
+### Detection heuristic
+
+The bar chooses the adapter using this priority chain:
+
+1. **Gateway prefix** in the model id (`minimax/MiniMax-M3` → `minimax`)
+2. **`provider` field** in the resolved pricing entry (`deepseek-v4-pro` → `deepseek`)
+3. **Bare-model family heuristic** (e.g. `deepseek-v4-pro` without prefix → `deepseek`)
+4. **Codex shape** + `~/.codex/auth.json` (valid JWT) → `codex_chatgpt`
+5. **Codex shape** + `$OPENAI_API_KEY` (admin) → `openai_dashboard`
+6. **No match** → segment omitted
+
+The bare-model heuristic exists because fcc-claude routes many direct-provider models
+through the `opencode`/`opencode_go` gateway in `pricing.json`. The heuristic catches
+both the bare and gateway forms.
+
+### Codex ChatGPT specifics
+
+The `codex_chatgpt` adapter **does not** call the OpenAI API. It reads the JWT that
+`codex login` saved in `~/.codex/auth.json` and decodes the
+`https://api.openai.com/auth.chatgpt_plan_type` claim. This matches what the
+`codex login status` command does internally (`codex-rs/login/src/token_data.rs`).
+
+The plan rate-limits are a hardcoded table — OpenAI doesn't publish them and doesn't
+expose subscription quota via the public API. The badge includes `(limite OpenAI pode
+mudar)` to set expectations.
+
+| Plan | Badge |
+|---|---|
+| `free` | `Free (3 msgs / 40h)` |
+| `plus` | `Plus (80 msgs / 3h)` |
+| `pro` | `Pro (500 msgs / 3h)` |
+| `business` | `Business (100 msgs / 3h)` |
+| `enterprise` | `Enterprise (1000 msgs / 3h)` |
+| `edu` | `Edu (50 msgs / 3h)` |
+| `team` | `Team (100 msgs / 3h)` |
+| _other_ | `<key> (limite desconhecido)` |
+
+---
+
+## Colour rules
+
+Three visual states are shared between the `⏱` quota segment, the `🧠` context
+segment, the `⚡` burn rate, and the `R$` cost.
+
+| Segment | 🟢 green | 🟡 yellow | 🔴 red |
+|---|---|---|---|
+| `⏱` quota used % | `< 60%` | `60–84%` | `≥ 85%` |
+| `🧠` context used % | `< 70%` | `70–89%` | `≥ 90%` |
+| `⚡` burn rate | `< 15k t/m` (or 150k for 1M-context models) | mid | `≥ 50k t/m` (or 500k) |
+| `R$` cost in BRL | `< R$ 0.50` | `R$ 0.50–2.49` | `≥ R$ 2.50` |
+
+The quota thresholds **changed in 2026-06**: we now show the **used** percentage
+(more intuitive: bigger = worse) and the alert kicks in at **85%**, not 90%. If
+you prefer the old 70/90 cutoffs, override in `~/.claude/statusline.env.json`:
+
+```json
+{
+  "quota_warn_pct": 70,
+  "quota_alert_pct": 90
+}
+```
+
+All other thresholds live in `lib/display.py::DisplayOptions` and are also
+overridable via the env file.
+
+### Disable colours
+
+Set `"color": "never"` in your config — same effect as piping to `less -R` or
+sending the bar to a log file.
+
+---
+
+## Configuration
+
+The bundled `statusline.env.json` documents every option. To override, copy it to
+`~/.claude/statusline.env.json` and edit. **All keys are optional**; missing keys
+fall back to the defaults in `lib/display.py::DisplayOptions`.
+
+```json
+{
+  "_comment": "Custom display toggles for the Claude Code statusline.",
+
+  "show_provider":      true,   // model label on line 1
+  "show_model":         true,   // model name on line 1
+  "show_tokens":        true,   // ⬆ ⬇ ↻R on line 2
+  "show_cost":          true,   // 🇧🇷 R$ / 🇺🇸 $ on line 3
+  "show_duration":      true,   // ⌛ wall-clock duration
+  "show_burn_rate":     true,   // ⚡ tokens/minute
+  "show_cache_pct":     true,   // cache hit ratio (TODO)
+  "show_flags":         true,
+  "show_both_currencies": true, // show 🇧🇷 + 🇺🇸 side by side
+  "show_provider_quota":   true, // ⏱ live quota segment
+  "show_minimax_quota":     true, // legacy alias for above
+
+  "quota_warn_pct":  60,        // yellow at 60% quota used
+  "quota_alert_pct": 85,        // red    at 85% quota used
+
+  "cost_warn_brl":   0.50,
+  "cost_alert_brl":  2.50,
+  "burn_warn_per_min": 15000,   // 150k for 1M-context models
+  "burn_alert_per_min": 50000,  // 500k for 1M-context models
+
+  "fx_cache_ttl_seconds": 3600, // refresh BRL/USD every 1h
+  "verbose":          false,    // show extra debug fields
+  "color":            "auto"    // "auto" | "always" | "never"
+}
+```
+
+### Pricing data
+
+`pricing.json` ships with **402 models across 5 direct providers** plus a gateway
+pass-through to OpenRouter's full catalogue. To add a new model:
+
+```json
+{
+  "models": {
+    "your-provider/your-model-name": {
+      "provider":  "your-provider",
+      "display":   "Your Model",
+      "input":     0.55,        // USD per 1M input tokens
+      "output":    2.20,        // USD per 1M output tokens
+      "cache_read": 0.055,      // USD per 1M cache-read tokens (optional)
+      "cache_write": 0.55,      // USD per 1M cache-write tokens (optional)
+      "unit":      "per_million_tokens",
+      "billing_mode": "pay_as_you_go",
+      "tier":      "qwen-medium" // grouping tier (informational)
+    }
+  }
+}
+```
+
+Missing pricing entries fall back to the `__fallback__` row and the bar shows `?`
+for that model — the script does **not** crash.
+
+### FX (USD ↔ BRL) rates
+
+The script fetches the BRL/USD rate from `https://open.er-api.com/v6/latest/USD`
+(50 reqs/month free tier), caches the result in
+`~/.cache/claude-code-statusline/fx.json` for `fx_cache_ttl_seconds` (default 1h),
+and falls back to a static 5.20 if the API is unreachable.
+
+---
+
+## How it works
+
+```
+┌────────────────────┐  stdin (JSON)   ┌────────────────────┐
+│  Claude Code TUI   │ ───────────────► │  session_tokens.py │
+└────────────────────┘                  └──────────┬──────────┘
+        ▲                                          │
+        │ renders 3 lines                           │ reads
+        │                                          ▼
+        │                                  ~/.claude/projects/<hash>/
+        │                                  <sessionId>.jsonl
+        │                                          │
+        │                              ┌───────────┴───────────┐
+        │                              ▼                       ▼
+        │                      pricing.json             lib/provider_quota.py
+        │                      (402 models)            (6 quota adapters)
+        │                              │                       │
+        │                              └───────────┬───────────┘
+        │                                          ▼
+        │                                  3 lines: id / uso / custo
+        └──────────────────────────────────────────┘
+```
+
+**Flow per render** (called on every keystroke after a model response):
+
+1. **Stdin parse** — Claude Code pipes a JSON payload with model id, working dir,
+   version, and the cumulative session cost
+2. **JSONL aggregate** — the script reads `~/.claude/projects/<hash>/<sessionId>.jsonl`,
+   sums `input_tokens` / `output_tokens` / `cache_read_input_tokens` /
+   `cache_creation_input_tokens` across all `assistant` messages in the session
+3. **Pricing lookup** — resolves the model id (with gateway-prefix stripping) to a
+   `ModelPrice` entry, computes the cost in USD, converts to BRL using the cached FX
+4. **Quota lookup** — for the active provider, calls the matching `QuotaProvider.fetch()`
+   in `lib/provider_quota.py`. Each adapter handles its own auth, retry, and caching
+5. **Render** — `_render_status_line()` in `lib/display.py` groups fields into
+   `[id, ⬆⬇↻, R$⌛⚡]` and emits ANSI-coloured output
+
+The script is **stateless** — every render reads from disk. This makes it safe to
+restart Claude Code mid-session without losing state.
+
+---
+
+## Adding a new provider
+
+To add support for a new provider (pricing only, no quota adapter):
+
+1. **Add entries to `pricing.json`** for the provider's models. Use the schema
+   shown in [Pricing data](#pricing-data).
+2. **(Optional) Add a heuristic in `session_tokens.py::_direct_provider_for_bare_model`**
+   if the provider ships bare model names (no gateway prefix) that should be
+   detected from the model id alone.
+3. **(Optional) Add a `provider_id` mapping** if the provider's id in pricing.json
+   doesn't match the one you want users to see in the bar.
+4. Run `python3 session_tokens.py` with a test payload to verify the bar.
+
+That's it — no code changes needed for pricing-only support.
+
+---
+
+## Adding a new quota adapter
+
+To add a live quota adapter (e.g. for a new provider with a public quota API):
+
+1. **Implement the adapter** in `lib/provider_quota.py`:
+
+   ```python
+   class MyProviderQuotaProvider:
+       provider_id = "my_provider"
+
+       def fetch(
+           self,
+           api_key: str | None = None,
+           *,
+           cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+           cache_path: Path | None = None,
+           now: float | None = None,
+       ) -> QuotaInfo:
+           # Read API key from env / ~/.fcc/.env
+           api_key = api_key or os.environ.get("MY_PROVIDER_API_KEY")
+           if not api_key:
+               return QuotaInfo(
+                   provider_id=self.provider_id,
+                   status_label="error",
+                   source="error",
+                   error="MY_PROVIDER_API_KEY not set",
+               )
+
+           # Read cache first
+           cached = _read_cache(cache_path, cache_ttl_seconds)
+           if cached and self.provider_id in cached:
+               return cached[self.provider_id]
+
+           # Call the upstream API
+           status, body = _request_json(
+               "https://api.my-provider.com/v1/quota",
+               headers={"Authorization": f"Bearer {api_key}"},
+           )
+           if status != 200:
+               return QuotaInfo(
+                   provider_id=self.provider_id,
+                   status_label="error",
+                   source="error",
+                   error=f"upstream HTTP {status}: {str(body)[:120]}",
+               )
+
+           # Parse and return
+           used_pct = body["used"] / body["limit"] * 100
+           return QuotaInfo(
+               provider_id=self.provider_id,
+               status_label=f"{used_pct:.0f}% usado ({100 - used_pct:.0f}% livre)",
+               detail=f"{body['used']:,} of {body['limit']:,}",
+               used_pct=used_pct,
+               source="live",
+           )
+   ```
+
+2. **Register it** in `QUOTA_PROVIDERS`:
+
+   ```python
+   QUOTA_PROVIDERS: dict[str, QuotaProvider] = {
+       "minimax":          MinimaxQuotaProvider(),
+       "open_router":      OpenRouterQuotaProvider(),
+       "codex_chatgpt":    CodexChatgptQuotaProvider(),
+       "deepseek":         DeepSeekQuotaProvider(),
+       "openai_dashboard": OpenAIDashboardQuotaProvider(),
+       "mistral":          MistralQuotaProvider(),
+       "my_provider":      MyProviderQuotaProvider(),  # ← new
+   }
+   ```
+
+3. **(Optional) Add detection heuristic** in `session_tokens.py` so the bar
+   activates the adapter for matching model ids without manual config.
+
+4. **Update `pricing.json`** so the provider id resolves correctly (the adapter
+   detection chain reads `price.provider` second after gateway-prefix parsing).
+
+5. **Update this README** with the new entry in [Quota adapters](#quota-adapters).
+
+---
 
 ## Troubleshooting
 
-### Statusline não aparece no TUI
+### `⏱` segment is missing
 
-1. Verifique se `~/.claude/settings.json` tem o campo `statusLine`.
-2. Rode manualmente: `python3 ~/.claude/statusline/session_tokens.py` — deve
-   retornar uma string em < 100ms.
-3. Reinicie o Claude Code (`Ctrl+D`, depois `fcc-claude`).
+The `⏱` segment is omitted silently if:
+- the active model doesn't match any provider with a quota adapter
+- the matching API key isn't in the env or `~/.fcc/.env`
+- the upstream returned a non-200 response (e.g. 401, 403, 404)
+- the upstream returned a payload the adapter doesn't recognise
 
-### Custo sempre `R$ 0.00`
+To diagnose, run the script directly with `verbose: true` in your config and watch
+the JSONL output for `[<provider>] <error>` lines.
 
-- Modelo não está na `pricing.json` — adicione a entrada.
-- `billing_mode` está como `"free_tier"` ou `"token_plan"`.
+### Stale quota data
 
-### Modelo aparece como `[???]`
-
-- A sessão ainda não tem nenhum request do assistant (só user/system).
-- `$CLAUDE_SESSION_ID` não está chegando ao script. Verifique se está
-  usando uma versão do Claude Code ≥ 2.1.
-
-### Burn rate inflado
-
-- O burn rate usa só `input_tokens + output_tokens` (não cache).
-- Se ainda parecer alto, a sessão é realmente muito ativa — normal em
-  tarefas de refactor grande com `MiniMax-M3`.
-
-### Quota adapter ausente (`⏱` não aparece)
-
-A linha `⏱` só renderiza quando o provider ativo tem um adapter vivo em
-`lib/provider_quota.py::QUOTA_PROVIDERS`. Hoje: **MiniMax + OpenRouter**.
-Para os 16 providers sem adapter público (gemini, kimi, ollama, etc.), a
-linha **simplesmente some** — é o comportamento correto, não um bug.
-
-### MiniMax quota não aparece mesmo com `MODEL=minimax/MiniMax-M3`
-
-1. Verifique se `~/.fcc/.env` tem `MINIMAX_API_KEY=...` (Subscription Key
-   do Token Plan, não pay-as-you-go).
-2. Rode manualmente pra ver erro:
-   ```bash
-   python3 -c "
-   import sys; sys.path.insert(0, '$HOME/Projetos/projetos/claude-code-statusline')
-   from lib.provider_quota import fetch_quota
-   print(fetch_quota('minimax'))
-   "
-   ```
-3. Toggle desligado: `statusline.env.json` precisa ter `"show_provider_quota": true`.
-
-## MiniMax quota tracking
-
-Quando o modelo ativo é `minimax/*`, a statusline consulta o endpoint
-oficial do Token Plan e mostra o ciclo de 5 horas:
-
-```
-[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻R4.1k • ⏱ 93% usado (7% livre) (reset 4h42m)
-```
-
-- **Origem do token:** `MINIMAX_API_KEY` do `~/.fcc/.env` (reutilizado do
-  fork `free-claude-code-minimax`).
-- **Endpoint:** `GET https://www.minimax.io/v1/token_plan/remains` com
-  `Authorization: Bearer <Subscription Key>`.
-- **Cache:** `~/.cache/claude-code-statusline/provider-quota.json`, TTL 60s.
-- **Cor:** verde < 60% usado, amarelo ≥ 60%, vermelho ≥ 85% (ajustável via
-  `quota_warn_pct` / `quota_alert_pct` em `statusline.env.json`).
-- **Desativar:** `"show_provider_quota": false` no `statusline.env.json`.
-
-Para testar manualmente:
+The cache TTL is 60s. To force a refresh:
 
 ```bash
-# Com sua Subscription Key (NÃO commitar):
-export KEY=$(grep MINIMAX_API_KEY ~/.fcc/.env | cut -d= -f2 | tr -d '"')
-/usr/bin/curl -s -X GET https://www.minimax.io/v1/token_plan/remains \
-  -H "Authorization: Bearer $KEY" \
-  -H "Content-Type: application/json" | python3 -m json.tool
+rm ~/.cache/claude-code-statusline/provider-quota.json
 ```
 
-## OpenRouter credits tracking
+### `???` model label
 
-Quando o modelo ativo é `open_router/*`, a statusline consulta o endpoint
-de credits do OpenRouter e mostra o percentual usado:
+Means the model id isn't in `pricing.json` and the `__fallback__` row is being used.
+Add an entry — see [Pricing data](#pricing-data).
 
-```
-[anthropic/claude-sonnet-4·open_router] • ⬆12k ⬇1k ↻0 • ⏱ 25% usado ($2.50 used of $10.00)
-```
+### Cost seems wrong
 
-- **Origem do token:** `OPENROUTER_API_KEY` do `~/.fcc/.env` ou env var.
-- **Endpoint:** `GET https://openrouter.ai/api/v1/credits` com
-  `Authorization: Bearer <Key>`.
-- **Cache:** mesmo arquivo do MiniMax (`provider-quota.json`).
-
-Para testar manualmente:
+Check the BRL/USD FX rate cache:
 
 ```bash
-/usr/bin/curl -s -X GET https://openrouter.ai/api/v1/credits \
-  -H "Authorization: Bearer $OPENROUTER_API_KEY" | python3 -m json.tool
+cat ~/.cache/claude-code-statusline/fx.json
 ```
 
-## Limitações conhecidas
+If `source: "fallback"`, the API call failed and we're using a hardcoded 5.20.
+Otherwise the rate is fresh (within `fx_cache_ttl_seconds`).
 
-1. **Não detecta Token Plan ativo** — você precisa setar `billing_mode` manualmente.
-2. **Custo agregado por último modelo** — se você alternou entre providers
-   na mesma sessão, o custo total reflete o preço do último modelo (não
-   faz rateio por modelo individual).
-3. **Cache não-rateado por provider** — `cache_read` é tratado com o preço
-   do último modelo (pode ser impreciso se você trocou).
-4. **Não considera tiered pricing** — se um modelo cobra mais caro acima de
-   200k tokens, isso não é detectado.
-5. **RefreshInterval mínimo** — Claude Code tem mínimo de 1s; valores
-   menores são ignorados.
-6. **Quota MiniMax é quota units, não tokens** — o endpoint
-   `/v1/token_plan/remains` retorna `current_interval_total_count` /
-   `current_interval_usage_count` em unidades de quota do plano, não em
-   tokens literais. A barra mostra `93% usado (7% livre)` (calculado a
-   partir de `remaining_percent`), que é o sinal mais confiável; a
-   contagem exata depende do tier (Plus / Max / Ultra) e do tipo de
-   recurso (`general`, `video`, etc.).
+### Bar doesn't appear at all
 
-## Inspiração: cc-statusline upstream
+Verify the script is callable:
 
-A inspiração visual original veio do projeto community `Miluer-tcq/cc-statusline`.
-Este projeto é **independente** (reescrito em Python + pricing dinâmico + quota
-MiniMax + cache R/W + burn rate 🧊⚡🔥) e **não é um fork**.
+```bash
+python3 ~/.claude/statusline/session_tokens.py < /dev/null
+# Should exit 0 with empty stdout
 
-Para não perder novidades do upstream, `.github/workflows/watch-cc-statusline-upstream.yml`
-roda toda segunda 9h BRT e abre uma issue listando os commits novos do upstream.
-**Nenhum merge é feito automaticamente** — a issue serve como lista de leitura
-pra você escolher manualmente o que portar.
+CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=test \
+    python3 ~/.claude/statusline/session_tokens.py < /dev/null
+# Should exit 0 with empty stdout (no JSONL yet)
+```
 
-Workflow:
-1. Lê `.github/upstream-sha` (SHA conhecido) e busca HEAD do upstream via `git ls-remote`.
-2. Se mudou: chama GitHub compare API pra listar commits novos.
-3. Abre/atualiza issue com label `upstream-watch`.
-4. Bumpa o SHA conhecido (commit automático via `github-actions[bot]`).
+Then trigger any prompt in Claude Code and check the bar.
 
-## Próximas melhorias (opcional)
+### `MINIMAX_API_KEY not set` (or similar)
 
-- [ ] Tracking per-model em vez de só último modelo
-- [ ] Cache write separado de cache read no display
-- [ ] Estimativa de "min restantes" baseado no burn rate
-- [ ] Hook opcional que dispara alerta se custo > X por hora
+The script reads keys from both the env and `~/.fcc/.env`. Verify the file exists
+and the key line matches `^MINIMAX_API_KEY=...$` (no leading `export `, no quotes
+unless you escape them).
 
-## Licença
+### `Cache` reads always 0
 
-MIT.
+Cache reads only show if the upstream supports prompt caching (Anthropic, OpenAI,
+DeepSeek, etc.) **and** the request actually hit a cached prefix. New sessions
+always start with `↻R 0`.
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/philipecomputacao/claude-code-statusline.git
+cd claude-code-statusline
+
+# Run the script in isolation
+python3 session_tokens.py < /dev/null
+
+# Render with a mock JSONL session
+python3 -c "
+import json
+from pathlib import Path
+import os
+session_id = 'dev-test'
+project_dir = os.getcwd()
+hash_id = project_dir.replace('/', '-')
+path = Path.home() / '.claude/projects' / hash_id / f'{session_id}.jsonl'
+path.parent.mkdir(parents=True, exist_ok=True)
+with open(path, 'w') as f:
+    f.write(json.dumps({
+        'type': 'assistant',
+        'sessionId': session_id,
+        'timestamp': '2026-06-20T13:00:00.000Z',
+        'message': {
+            'role': 'assistant',
+            'model': 'minimax/MiniMax-M3',
+            'usage': {
+                'input_tokens': 1234, 'output_tokens': 567,
+                'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0,
+            }
+        }
+    }) + '\n')
+print(f'wrote {path}')
+"
+CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=dev-test \
+    python3 session_tokens.py < /dev/null
+# Should render the bar
+```
+
+### Project layout
+
+```
+.
+├── session_tokens.py        # main entry point
+├── lib/
+│   ├── display.py           # ANSI colour rules + render pipeline
+│   ├── parser.py            # JSONL aggregator + token totals
+│   ├── pricing.py           # pricing.json loader + cost compute
+│   └── provider_quota.py    # 6 QuotaProvider adapters + registry
+├── pricing.json             # 402 models, 5 direct providers
+├── statusline.env.json      # default display toggles
+└── .github/workflows/
+    └── watch-cc-statusline-upstream.yml  # weekly divergence check
+```
+
+### Tests
+
+The script has no unit tests (the integration surface is Claude Code itself). All
+adapters have **mock-based smoke tests** baked into the file's `if __name__ == "__main__"`
+block — see `lib/provider_quota.py` for examples.
+
+### Lint / type-check
+
+```bash
+# No third-party deps needed; uses stdlib only
+python3 -m py_compile session_tokens.py
+python3 -m py_compile lib/*.py
+```
+
+---
+
+## Related projects
+
+- **[opencode-llm-statusline][opencode-plugin]** — same statusline bar, but in
+  [OpenCode][oc] instead of Claude Code. One TypeScript file that spawns this script.
+- **[free-claude-code-minimax][fcc]** — the fcc-claude fork that this project was
+  originally built for. Adds `minimax` as a first-class provider.
+
+[opencode-plugin]: https://github.com/philipecomputacao/opencode-llm-statusline
+[oc]: https://opencode.ai
+[fcc]: https://github.com/philipecomputacao/free-claude-code-minimax
+
+---
+
+## Upstream divergence
+
+This project is **independent** of [Miluer-tcq/cc-statusline][upstream-cn]. The upstream
+was rewritten in bash + JSON presets in 2025; we intentionally stay on Python 3 so
+we can add new quota adapters without maintaining bash. A weekly GitHub Action
+([`.github/workflows/watch-cc-statusline-upstream.yml`](.github/workflows/watch-cc-statusline-upstream.yml))
+opens a tracking issue when upstream gains new commits; nothing is auto-merged.
+
+---
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).
