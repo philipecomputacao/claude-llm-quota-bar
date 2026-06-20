@@ -310,8 +310,8 @@ def render(
         opts = DisplayOptions()
     use_color = _use_color(opts.color)
     # Four logical groups, one per rendered line:
-    #   parts_id   = model + cc version
     #   parts_dir  = cwd (full path, own line to avoid truncation)
+    #   parts_id   = model + cc version
     #   parts_uso  = tokens + context window % + provider quota
     #   parts_custo = cost + duration + burn rate + verbose USD
     parts_id: list[str] = []
@@ -415,7 +415,7 @@ def render(
             parts_uso.append(_colorize(label, color, use_color))
 
     return _format_multiline(
-        [parts_id, parts_dir, parts_uso, parts_custo],
+        [parts_dir, parts_id, parts_uso, parts_custo],
         use_color=use_color,
     )
 
