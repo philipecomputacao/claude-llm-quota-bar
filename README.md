@@ -220,11 +220,11 @@ provider ativo tem um adapter vivo registrado.
 
 | Provider | Endpoint | Auth | Formato exibido |
 |---|---|---|---|
-| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 60% livre (reset 2h48m)` |
-| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` (env ou `~/.fcc/.env`) | `⏱ $7.50 credits ($2.50 used of $10.00)` |
+| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 40% usado (reset 2h48m)` |
+| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 25% usado ($2.50 used of $10.00)` |
 | `deepseek` | `GET https://api.deepseek.com/user/balance` | `DEEPSEEK_API_KEY` (env ou `~/.fcc/.env`) | `⏱ $4.50 USD (usou $0.50 de $5.00 free)` |
 | `mistral` | `GET https://api.mistral.ai/v1/usage` | `MISTRAL_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 1.7M tokens (modelos: mistral-large-latest, mistral-small-latest)` |
-| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ $87.66 / $100.00 ($12.34 used)` |
+| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ 12% usado ($12.00 used of $100.00)` |
 | `codex_chatgpt` | Lê `~/.codex/auth.json` e decodifica JWT (sem rede) | `~/.codex/auth.json` ou `$CODEX_ACCESS_TOKEN` | `⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)` |
 
 Aliases:
@@ -233,6 +233,47 @@ Aliases:
 
 Adicionar novo adapter: implementar `QuotaProvider` em `lib/provider_quota.py` e
 registrar em `QUOTA_PROVIDERS`.
+
+## Cores do quota segment (`⏱`)
+
+Os adapters que expõem `used_pct` (MiniMax, OpenRouter, OpenAI dashboard)
+renderizam o label no formato **`X% usado`** com cor que escala
+intuitivamente: quanto maior o número, mais perto do limite, mais quente
+a cor.
+
+| Cor | Condição | Significado |
+|---|---|---|
+| 🟢 verde | `used_pct < 60%` | Saudável |
+| 🟡 amarelo | `60% ≤ used_pct < 85%` | Warning — começa a apertar |
+| 🔴 vermelho | `used_pct ≥ 85%` | Alerta — perto do limite |
+
+Exemplos de output:
+
+```
+# 30% usado (verde)
+⏱ 30% usado (reset 2h48m)
+
+# 60% usado (amarelo)
+⏱ 60% usado (reset 45m)
+
+# 85% usado (vermelho)
+⏱ 85% usado (reset 5m)
+```
+
+Para customizar os thresholds, edite `statusline.env.json`:
+
+```json
+{
+  "quota_warn_pct": 60,    // amarelo começa aqui (default)
+  "quota_alert_pct": 85    // vermelho começa aqui (default)
+}
+```
+
+Para desativar as cores: `"color": "never"` no `statusline.env.json`
+(também remove as cores do restante da statusline).
+
+Provedores sem `used_pct` (DeepSeek balance absoluto, Mistral sem hard
+limit, Codex ChatGPT estático) continuam com a cor cinza neutra.
 
 ## OpenAI / Codex ChatGPT plan tracking
 
@@ -338,7 +379,7 @@ Quando o modelo ativo é `minimax/*`, a statusline consulta o endpoint
 oficial do Token Plan e mostra o ciclo de 5 horas:
 
 ```
-[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻R4.1k • ⏱ 93% livre (reset 4h42m)
+[MiniMax-M3·minimax] • ⬆1.2k ⬇350 ↻R4.1k • ⏱ 93% usado (reset 4h42m)
 ```
 
 - **Origem do token:** `MINIMAX_API_KEY` do `~/.fcc/.env` (reutilizado do
@@ -346,8 +387,8 @@ oficial do Token Plan e mostra o ciclo de 5 horas:
 - **Endpoint:** `GET https://www.minimax.io/v1/token_plan/remains` com
   `Authorization: Bearer <Subscription Key>`.
 - **Cache:** `~/.cache/claude-code-statusline/provider-quota.json`, TTL 60s.
-- **Cor:** verde < 70% usado, amarelo ≥ 70%, vermelho ≥ 90% (ajustável via
-  `quota_warn_pct` / `quota_alert_pct`).
+- **Cor:** verde < 60% usado, amarelo ≥ 60%, vermelho ≥ 85% (ajustável via
+  `quota_warn_pct` / `quota_alert_pct` em `statusline.env.json`).
 - **Desativar:** `"show_provider_quota": false` no `statusline.env.json`.
 
 Para testar manualmente:
@@ -363,10 +404,10 @@ export KEY=$(grep MINIMAX_API_KEY ~/.fcc/.env | cut -d= -f2 | tr -d '"')
 ## OpenRouter credits tracking
 
 Quando o modelo ativo é `open_router/*`, a statusline consulta o endpoint
-de credits do OpenRouter e mostra o saldo restante:
+de credits do OpenRouter e mostra o percentual usado:
 
 ```
-[anthropic/claude-sonnet-4·open_router] • ⬆12k ⬇1k ↻0 • ⏱ $7.50 credits ($2.50 used of $10.00)
+[anthropic/claude-sonnet-4·open_router] • ⬆12k ⬇1k ↻0 • ⏱ 25% usado ($2.50 used of $10.00)
 ```
 
 - **Origem do token:** `OPENROUTER_API_KEY` do `~/.fcc/.env` ou env var.
@@ -396,9 +437,10 @@ Para testar manualmente:
 6. **Quota MiniMax é quota units, não tokens** — o endpoint
    `/v1/token_plan/remains` retorna `current_interval_total_count` /
    `current_interval_usage_count` em unidades de quota do plano, não em
-   tokens literais. A barra mostra `93% livre` (do `remaining_percent`),
-   que é o sinal mais confiável; a contagem exata depende do tier (Plus /
-   Max / Ultra) e do tipo de recurso (`general`, `video`, etc.).
+   tokens literais. A barra mostra `93% usado` (calculado a partir de
+   `remaining_percent`), que é o sinal mais confiável; a contagem exata
+   depende do tier (Plus / Max / Ultra) e do tipo de recurso (`general`,
+   `video`, etc.).
 
 ## Inspiração: cc-statusline upstream
 

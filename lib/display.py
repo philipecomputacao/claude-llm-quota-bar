@@ -48,8 +48,8 @@ class DisplayOptions:
     show_both_currencies: bool = True
     show_minimax_quota: bool = True
     show_provider_quota: bool = True
-    quota_warn_pct: float = 70.0
-    quota_alert_pct: float = 90.0
+    quota_warn_pct: float = 60.0
+    quota_alert_pct: float = 85.0
     verbose: bool = False
     color: ColorMode = "auto"
     cost_warn_brl: float = 0.50

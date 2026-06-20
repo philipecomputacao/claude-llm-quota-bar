@@ -281,10 +281,15 @@ def _format_minimax_window(
     used: int | None,
     limit: int | None,
 ) -> tuple[str, float | None]:
-    """Return ``(label, used_pct)`` for a MiniMax window."""
+    """Return ``(label, used_pct)`` for a MiniMax window.
+
+    Label shows the **used** percentage (e.g. ``"68% usado"``) so the
+    statusline colour rule (green/yellow/red) maps intuitively: bigger
+    number → closer to limit → red.
+    """
     if remaining_pct is not None:
         used_pct = max(0.0, min(100.0, 100.0 - remaining_pct))
-        return f"{remaining_pct:.0f}% livre", used_pct
+        return f"{used_pct:.0f}% usado", used_pct
     if used is not None and limit:
         used_pct = float(used) / float(limit) * 100.0
         return f"{used_pct:.0f}% usado", used_pct
@@ -509,7 +514,11 @@ def _parse_openrouter_payload(payload: object) -> QuotaInfo:
     used_pct = (used / total * 100.0) if total > 0 else None
     return QuotaInfo(
         provider_id="open_router",
-        status_label=f"${remaining:.2f} credits",
+        # Used percentage first so the colour rule (green/yellow/red) maps
+        # intuitively: bigger number → closer to limit → red.
+        status_label=(
+            f"{used_pct:.0f}% usado" if used_pct is not None else f"${remaining:.2f} credits"
+        ),
         detail=f"${used:.2f} used of ${total:.2f}",
         used_pct=used_pct,
         source="live",
@@ -1028,8 +1037,12 @@ def _parse_openai_dashboard_payload(payload: object) -> QuotaInfo:
     used_pct = (used / total * 100.0) if total > 0 else None
     return QuotaInfo(
         provider_id="openai_dashboard",
-        status_label=f"${available:.2f} / ${total:.2f}",
-        detail=f"${used:.2f} used",
+        # Used percentage first so the colour rule (green/yellow/red) maps
+        # intuitively: bigger number → closer to limit → red.
+        status_label=(
+            f"{used_pct:.0f}% usado" if used_pct is not None else f"${available:.2f} / ${total:.2f}"
+        ),
+        detail=f"${used:.2f} used of ${total:.2f}",
         used_pct=used_pct,
         source="live",
     )
