@@ -153,12 +153,16 @@ export const MiniMaxStatusline: Plugin = async ({ client, directory }) => {
           try { mkdirSync(CACHE_DIR, { recursive: true }); writeFileSync(CACHE_FILE, bar + "\n", "utf8") } catch { /* noop */ }
         }
 
-        // Python outputs 2-3 lines — show the quota line (tokens + cost).
+        // Python outputs 3 lines — join all into a single toast message.
+        // Lines: [1] model + cwd + version  [2] tokens + quota + context
+        //        [3] cost + duration + burn rate
         const lines = bar ? stripAnsi(bar).split("\n").filter((l: string) => l.trim()) : []
-        const line = lines.length >= 2 ? lines[1] : (lines[0] || "no data yet")
+        const message = lines.length > 0
+          ? lines.join("\n")
+          : "no data yet"
         try {
           await c.tui.showToast({
-            body: { message: line, variant: "info", title: "📊 Quota", duration: 30000 },
+            body: { message, variant: "info", title: "📊 Quota", duration: 30000 },
           })
         } catch { /* noop */ }
       } catch {
