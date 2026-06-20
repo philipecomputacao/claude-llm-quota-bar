@@ -10,6 +10,7 @@ a cost breakdown, and a few display options, and returns the final string.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -98,6 +99,13 @@ EMOJI_CALENDAR = "\U0001F4C5" # 📅
 
 FLAG_BR = "\U0001F1E7\U0001F1F7"  # Brazil
 FLAG_US = "\U0001F1FA\U0001F1F8"  # United States
+
+_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?$")
+
+
+def _looks_like_version(s: str) -> bool:
+    """Return True if *s* looks like a semver-ish version (e.g. ``2.1.170``)."""
+    return bool(_VERSION_RE.match(s))
 
 
 def _use_color(mode: ColorMode) -> bool:
@@ -401,7 +409,7 @@ def render(
         if context.cwd:
             short = context.cwd.replace(os.path.expanduser("~"), "~", 1)
             parts_id.append(_colorize(f"{EMOJI_DIR} {short}", DIM, use_color))
-        if context.cc_version:
+        if context.cc_version and _looks_like_version(context.cc_version):
             parts_id.append(
                 _colorize(f"{EMOJI_CC} v{context.cc_version}", DIM, use_color)
             )
