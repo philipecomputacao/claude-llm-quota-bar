@@ -618,12 +618,16 @@ python3 -m py_compile lib/*.py
 
 ## Related projects
 
-- **[opencode-llm-statusline][opencode-plugin]** — same statusline bar, but in
-  [OpenCode][oc] instead of Claude Code. One TypeScript file that spawns this script.
+- **[opencode-plugin][opencode-plugin]** — same statusline bar, but in
+  [OpenCode][oc] instead of Claude Code. Lives in this repo under
+  [`opencode-plugin/`](opencode-plugin/) — server-side `llm-statusline.ts`
+  + TUI plugin (`llm-statusline-tui/`) that renders a persistent 3-line
+  bar in the OpenCode footer and exposes a `/quota` slash command to
+  toggle it.
 - **[free-claude-code-minimax][fcc]** — the fcc-claude fork that this project was
   originally built for. Adds `minimax` as a first-class provider.
 
-[opencode-plugin]: https://github.com/philipecomputacao/opencode-llm-statusline
+[opencode-plugin]: ./opencode-plugin/
 [oc]: https://opencode.ai
 [fcc]: https://github.com/philipecomputacao/free-claude-code-minimax
 

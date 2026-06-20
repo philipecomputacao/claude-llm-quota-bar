@@ -1,0 +1,11 @@
+{
+  "name": "llm-statusline-tui",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.14.29",
+    "@opentui/core": "^0.1.105",
+    "@opentui/solid": "^0.1.105"
+  }
+}
