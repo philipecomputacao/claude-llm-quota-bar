@@ -90,6 +90,48 @@ def _safe_log_path(claude_dir: Path, project_dir: str, session_id: str) -> tuple
     return fallback, fallback_model
 
 
+# Statusline parses the JSONL on every refresh. To avoid re-reading a
+# multi-MB file every 5 s (which can briefly blank the TUI), we memoize
+# the result keyed on (path, mtime, size) for a short window. Claude Code
+# only writes appendFileSync, so the file is append-only — the mtime/size
+# tuple uniquely identifies the content of the tail we already parsed.
+_AGGREGATE_CACHE: dict[tuple[str, int, int], tuple[float, "TokenTotals"]] = {}
+_AGGREGATE_CACHE_TTL_SECONDS = 2.0
+
+
+def _aggregate_cached(jsonl_path: Path, session_id: str | None) -> "TokenTotals":
+    """Return aggregate_session(jsonl_path, session_id), cached for ~2 s.
+
+    Cache key is (path, mtime_ns, size). When Claude Code appends a new
+    assistant entry, the size grows and we re-parse only the tail. The
+    2 s window aligns with the Claude Code statusline refresh interval
+    (5 s) so consecutive refreshes reuse the parsed result.
+    """
+    from lib.parser import aggregate_session  # local import to avoid cycle
+
+    try:
+        st = jsonl_path.stat()
+    except OSError:
+        return TokenTotals()
+    key = (str(jsonl_path), st.st_mtime_ns, st.st_size)
+    now = time.monotonic()
+    cached = _AGGREGATE_CACHE.get(key)
+    if cached is not None:
+        ts, totals = cached
+        if now - ts < _AGGREGATE_CACHE_TTL_SECONDS:
+            return totals
+        # Stale entry — drop it and refetch.
+        _AGGREGATE_CACHE.pop(key, None)
+    # Opportunistic cache prune so the dict does not grow unbounded across
+    # very long sessions that touch many JSONL files.
+    for k, (ts, _) in list(_AGGREGATE_CACHE.items()):
+        if now - ts > _AGGREGATE_CACHE_TTL_SECONDS * 4:
+            _AGGREGATE_CACHE.pop(k, None)
+    totals = aggregate_session(jsonl_path, session_id or "")
+    _AGGREGATE_CACHE[key] = (now, totals)
+    return totals
+
+
 def _build_context_info(
     stdin_hint: dict[str, Any],
     project_dir_fallback: str,
@@ -359,7 +401,7 @@ def main() -> int:
     else:
         from lib.parser import aggregate_session
 
-        totals = aggregate_session(log_path, session_id or "")
+        totals = _aggregate_cached(log_path, session_id or "")
         last_model = totals.last_model or fallback_model or std_model
         if fallback_model and totals.request_count == 0:
             last_model = fallback_model

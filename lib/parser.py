@@ -173,6 +173,56 @@ def _empty_totals() -> TokenTotals:
     return TokenTotals()
 
 
+# Tail-window for statusline reads. The full JSONL for a long session can
+# exceed 18 MB on disk; reading it from the start every 5 s blocks the TUI
+# and visibly blanks the statusline while the parser is in flight. 256 KB
+# comfortably fits a few thousand assistant messages — enough to cover the
+# whole active session in practice (typical response is 2-10 KB), but small
+# enough to parse in single-digit milliseconds.
+TAIL_READ_BYTES = 256 * 1024
+
+
+def _iter_tail_lines(jsonl_path: Path, byte_budget: int = TAIL_READ_BYTES) -> Iterable[str]:
+    """Yield non-empty lines from the tail of ``jsonl_path``.
+
+    Reads at most ``byte_budget`` bytes from the end of the file so the
+    statusline parser does not block on multi-megabyte session logs. Skips
+    the (possibly partial) first line of the read window because we sliced
+    into the middle of a record.
+    """
+    try:
+        size = jsonl_path.stat().st_size
+    except OSError:
+        return
+    if size <= byte_budget:
+        # File is small enough — read it whole, no special handling.
+        try:
+            with jsonl_path.open("r", encoding="utf-8") as handle:
+                for raw in handle:
+                    line = raw.strip()
+                    if line:
+                        yield line
+        except OSError:
+            return
+        return
+
+    try:
+        with jsonl_path.open("rb") as handle:
+            handle.seek(size - byte_budget)
+            chunk = handle.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return
+    # We likely started mid-line; drop the (incomplete) first record so we
+    # never try to json.loads a half-line. Everything after the first newline
+    # is a complete record.
+    if "\n" in chunk:
+        chunk = chunk.split("\n", 1)[1]
+    for raw in chunk.splitlines():
+        line = raw.strip()
+        if line:
+            yield line
+
+
 def aggregate_session(jsonl_path: Path, session_id: str | None) -> TokenTotals:
     """Aggregate token usage from ``jsonl_path`` for the given ``session_id``.
 
@@ -182,38 +232,39 @@ def aggregate_session(jsonl_path: Path, session_id: str | None) -> TokenTotals:
     in the project directory is almost always the active session, so falling
     back to "sum everything in this file" is correct and avoids losing the
     token totals during the refresh.
+
+    For performance, only the trailing ``TAIL_READ_BYTES`` (256 KB) of the
+    JSONL are read. Long sessions with hundreds of MB of history will not
+    re-parse the entire log on every 5 s refresh — only the recent activity
+    window is scanned, which is what the statusline displays anyway.
     """
     if not jsonl_path.exists():
         return _empty_totals()
 
     totals = _empty_totals()
     try:
-        with jsonl_path.open("r", encoding="utf-8") as handle:
-            for raw in handle:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                parsed = _parse_assistant(entry)
-                if parsed is None:
-                    continue
-                if session_id and parsed.session_id != session_id:
-                    continue
-                one = TokenTotals(
-                    input_tokens=parsed.input_tokens,
-                    output_tokens=parsed.output_tokens,
-                    cache_creation_tokens=parsed.cache_creation_tokens,
-                    cache_read_tokens=parsed.cache_read_tokens,
-                    request_count=1,
-                    first_timestamp=parsed.timestamp,
-                    last_timestamp=parsed.timestamp,
-                    last_model=parsed.model,
-                    last_provider=parsed.provider,
-                )
-                totals = totals.merge(one)
+        for line in _iter_tail_lines(jsonl_path):
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            parsed = _parse_assistant(entry)
+            if parsed is None:
+                continue
+            if session_id and parsed.session_id != session_id:
+                continue
+            one = TokenTotals(
+                input_tokens=parsed.input_tokens,
+                output_tokens=parsed.output_tokens,
+                cache_creation_tokens=parsed.cache_creation_tokens,
+                cache_read_tokens=parsed.cache_read_tokens,
+                request_count=1,
+                first_timestamp=parsed.timestamp,
+                last_timestamp=parsed.timestamp,
+                last_model=parsed.model,
+                last_provider=parsed.provider,
+            )
+            totals = totals.merge(one)
     except OSError:
         return _empty_totals()
     return totals
