@@ -33,6 +33,8 @@ from lib.display import DisplayOptions, render  # noqa: E402
 from lib.fx import DEFAULT_TTL_SECONDS, resolve_rate  # noqa: E402
 from lib.parser import (  # noqa: E402
     TokenTotals,
+    _provider_from_model,
+    _strip_gateway_prefix,
     locate_latest_log,
     locate_session_log,
     parse_first_response_model,
@@ -91,9 +93,23 @@ def _price_for_model(
     model_id: str | None,
     table: dict[str, ModelPrice],
 ) -> ModelPrice | None:
+    """Look up the price entry for ``model_id`` with gateway fallback.
+
+    For free-claude-code gateway IDs (``anthropic/minimax/MiniMax-M3``) the
+    ``anthropic/`` prefix is stripped before lookup, so a price table keyed by
+    the direct provider ref (``minimax/MiniMax-M3``) still resolves.
+    """
     if model_id is None:
         return table.get("__fallback__")
-    return table.get(model_id) or table.get("__fallback__")
+    direct = table.get(model_id)
+    if direct is not None:
+        return direct
+    stripped = _strip_gateway_prefix(model_id)
+    if stripped != model_id:
+        stripped_price = table.get(stripped)
+        if stripped_price is not None:
+            return stripped_price
+    return table.get("__fallback__")
 
 
 def main() -> int:
@@ -148,9 +164,7 @@ def main() -> int:
                 first_timestamp=totals.first_timestamp,
                 last_timestamp=totals.last_timestamp,
                 last_model=last_model,
-                last_provider=(
-                    last_model.split("/", 1)[0] if "/" in last_model else "anthropic"
-                ),
+                last_provider=_provider_from_model(last_model),
             )
         price = _price_for_model(last_model, table)
         cost = compute_cost(totals, table, fx.rate)

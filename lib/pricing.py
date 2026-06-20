@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .parser import TokenTotals
+from .parser import TokenTotals, _strip_gateway_prefix
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,14 +98,25 @@ def compute_cost(
     switched providers), the price used for cost is the one matching the
     **last observed model**. If the user wants per-model costs they can extend
     the parser to track per-model totals in the future.
+
+    For free-claude-code gateway IDs (``anthropic/minimax/MiniMax-M3``) the
+    prefix is stripped before lookup so a price table keyed by the direct
+    provider ref (``minimax/MiniMax-M3``) still resolves.
     """
-    last_model = totals.last_model or "__fallback__"
-    price = table.get(last_model) or table.get("__fallback__")
+    raw_last_model = totals.last_model
+    last_model = raw_last_model or "__fallback__"
+    price = table.get(last_model)
+    if price is None and raw_last_model is not None:
+        stripped = _strip_gateway_prefix(raw_last_model)
+        if stripped != raw_last_model:
+            price = table.get(stripped)
+    if price is None:
+        price = table.get("__fallback__")
     if price is None:
         return CostBreakdown(
             currency="USD",
             fx_to_brl=fx_to_brl,
-            unknown_models=(last_model,) if totals.last_model else (),
+            unknown_models=(raw_last_model,) if raw_last_model else (),
         )
 
     input_cost = totals.input_tokens / 1_000_000 * price.input_per_million
@@ -117,8 +128,9 @@ def compute_cost(
         totals.cache_creation_tokens / 1_000_000 * price.cache_write_per_million
     )
     total = input_cost + output_cost + cache_read_cost + cache_write_cost
-    unknown = () if price.model_id != "__fallback__" else (
-        (totals.last_model,) if totals.last_model else ()
+    unknown: tuple[str, ...] = (
+        () if price.model_id != "__fallback__"
+        else ((raw_last_model,) if raw_last_model else ())
     )
     return CostBreakdown(
         input_cost_usd=input_cost,

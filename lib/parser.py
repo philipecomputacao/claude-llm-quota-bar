@@ -80,10 +80,41 @@ class AssistantMessage:
 
 
 def _provider_from_model(model_id: str) -> str:
-    """Extract provider prefix from a model id like ``minimax/MiniMax-M3``."""
-    if "/" in model_id:
-        return model_id.split("/", 1)[0]
-    return "anthropic" if model_id.startswith("claude") else "unknown"
+    """Extract provider prefix from a model id.
+
+    Recognises both direct refs (``minimax/MiniMax-M3``) and free-claude-code
+    gateway IDs (``anthropic/minimax/MiniMax-M3`` or
+    ``claude-3-freecc-no-thinking/minimax/MiniMax-M3``). For gateway IDs the
+    ``anthropic/`` / ``claude-3-freecc-no-thinking/`` prefix is stripped first
+    so the real upstream provider (``minimax``) is returned, not ``anthropic``.
+    """
+    stripped = _strip_gateway_prefix(model_id)
+    if "/" in stripped:
+        return stripped.split("/", 1)[0]
+    return "anthropic" if stripped.startswith("claude") else "unknown"
+
+
+# Gateway ID prefixes used by free-claude-code (fcc-claude). See
+# https://github.com/philipecomputacao/free-claude-code-minimax and the
+# ``GATEWAY_MODEL_ID_PREFIX`` / ``NO_THINKING_GATEWAY_MODEL_ID_PREFIX``
+# constants in fcc-claude's ``api/gateway_model_ids.py``. The statusline is a
+# separate project and intentionally does not import from fcc-claude.
+_FCC_GATEWAY_PREFIXES: tuple[str, ...] = (
+    "anthropic/",
+    "claude-3-freecc-no-thinking/",
+)
+
+
+def _strip_gateway_prefix(model_id: str) -> str:
+    """Strip the free-claude-code gateway prefix from ``model_id`` if present.
+
+    Direct provider refs (``minimax/MiniMax-M3``) and Anthropic-native ids
+    (``claude-3-5-sonnet-...``) pass through unchanged.
+    """
+    for prefix in _FCC_GATEWAY_PREFIXES:
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
 
 
 def _parse_assistant(entry: dict) -> AssistantMessage | None:
