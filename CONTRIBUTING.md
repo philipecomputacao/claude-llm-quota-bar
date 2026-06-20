@@ -12,12 +12,15 @@ This document covers how to report bugs, request features, and contribute code
 1. **Search existing issues** first — including closed ones.
 2. **Collect the bar output** you're seeing (paste the 3 lines verbatim).
 3. **Mention your platform** — Claude Code version / Python version / OS.
-4. **Mention which provider** you're testing (MiniMax, OpenRouter, etc.) and
-   whether you set the corresponding env var.
+4. **Mention which provider** you're testing (Anthropic-native Claude,
+   OpenAI direct, Codex ChatGPT, DeepSeek, Mistral, OpenRouter, MiniMax,
+   or "other") and whether you set the corresponding env var. If you're
+   not routing through a third-party gateway, you can leave this blank —
+   the bar works for any provider Claude Code has ever called.
 5. **Include steps to reproduce** — even rough ones.
 
-If the bug involves the **statusline not appearing at all**, first check the
-[TROUBLESHOOTING.md § Troubleshooting](#) in the README.
+If the bug involves the **statusline not appearing at all**, first check
+the [README § Troubleshooting](README.md#troubleshooting) section.
 
 ---
 
@@ -33,56 +36,127 @@ Open an issue with the `enhancement` label and explain:
 
 ## 🔌 Adding a new quota adapter
 
-The architecture is intentionally small. A "quota adapter" is one class in
-`lib/provider_quota.py` that:
+The architecture is intentionally small. A "quota adapter" is one class
+in `lib/provider_quota.py` that implements the `QuotaProvider` Protocol
+defined at `lib/provider_quota.py:67-80`:
 
-1. Detects whether the adapter applies to the current `model_id` (or
-   `provider_id`).
-2. Performs the API call (or reuses existing infrastructure).
-3. Returns a `QuotaStatus` dataclass with `used_pct`, `status_label`,
-   `detail`, `error`, `fetched_at`.
+```python
+class QuotaProvider(Protocol):
+    provider_id: str
+
+    def fetch(
+        self,
+        api_key: str | None = None,
+        *,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+        cache_path: Path | None = None,
+        now: float | None = None,
+    ) -> QuotaInfo: ...
+```
+
+`QuotaInfo` is the dataclass returned by `fetch()` (defined at
+`lib/provider_quota.py:49-64`):
+
+```python
+@dataclass(frozen=True, slots=True)
+class QuotaInfo:
+    provider_id: str
+    status_label: str          # e.g. "60% livre" / "$8.50 credits" / "free"
+    detail: str | None = None  # optional: e.g. "reset 2h48m"
+    used_pct: float | None = None  # drives the line colour
+    source: str = "static"     # "live" | "cache" | "static" | "error"
+    error: str | None = None
+    fetched_at: datetime | None = None
+```
 
 ### Skeleton
 
 ```python
-class NewProviderQuota(QuotaProvider):
-    name = "new_provider"
-    api_url = "https://api.example.com/v1/usage"
-    env_var = "NEW_PROVIDER_API_KEY"
-    headers_factory = staticmethod(lambda key: {"Authorization": f"Bearer {key}"})
+class MyProviderQuotaProvider:
+    provider_id = "my_provider"
 
-    def applies_to(self, provider_id: str, model_id: str) -> bool:
-        return provider_id == "new_provider"
+    def fetch(
+        self,
+        api_key: str | None = None,
+        *,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+        cache_path: Path | None = None,
+        now: float | None = None,
+    ) -> QuotaInfo:
+        # Resolve API key: caller-supplied > env > ~/.fcc/.env
+        api_key = api_key or os.environ.get("MY_PROVIDER_API_KEY")
+        if not api_key:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="MY_PROVIDER_API_KEY not set",
+            )
 
-    def parse(self, raw: dict, now: float) -> QuotaStatus:
-        used = raw.get("used", 0)
-        limit = raw.get("limit", 1)
-        used_pct = round((used / limit) * 100, 1) if limit else 0
-        return QuotaStatus(
-            used_pct=used_pct,
-            status_label=f"{used_pct}% usado ({100 - used_pct:.0f}% livre)",
-            detail=f"${used} of ${limit}",
-            fetched_at=now,
+        # Read cache first (shared helper in this file)
+        cached = _read_cache(cache_path, cache_ttl_seconds)
+        if cached and self.provider_id in cached:
+            return cached[self.provider_id]
+
+        # Hit the upstream API
+        status, body = _request_json(
+            "https://api.my-provider.com/v1/quota",
+            headers={"Authorization": f"Bearer {api_key}"},
         )
+        if status != 200:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error=f"upstream HTTP {status}: {str(body)[:120]}",
+            )
 
-    def fetch(self) -> dict:
-        key = self._read_key()
-        if not key:
-            raise QuotaError("NEW_PROVIDER_API_KEY not set")
-        resp = http_get(self.api_url, headers=self.headers_factory(key))
-        return resp.json()
+        # Parse and return
+        used = body["used"]
+        limit = body["limit"] or 1
+        used_pct = round((used / limit) * 100, 1)
+        return QuotaInfo(
+            provider_id=self.provider_id,
+            status_label=f"{used_pct:.0f}% usado ({100 - used_pct:.0f}% livre)",
+            detail=f"{used:,} of {limit:,}",
+            used_pct=used_pct,
+            source="live",
+            fetched_at=datetime.now(tz=timezone.utc),
+        )
 ```
 
-Then register it in the `QUOTA_PROVIDERS` registry at the bottom of
-`lib/provider_quota.py`. Add a smoke test in the same file's
-`if __name__ == "__main__":` block using a `monkeypatch` of `http_get`.
+Then register it in the `QUOTA_PROVIDERS` registry near the bottom of
+`lib/provider_quota.py` (search for `QUOTA_PROVIDERS: dict[str, QuotaProvider]`)
+and add a smoke test in the same file's
+`if __name__ == "__main__":` block (monkeypatch `_request_json` with a
+fixture payload — see `MinimaxQuotaProvider` for the canonical pattern).
+
+### Detection chain
+
+The bar picks the adapter from the active model via this priority chain
+(in `session_tokens.py::_direct_provider_for_bare_model` and the pricing
+lookup):
+
+1. **Gateway prefix** in the model id (`minimax/MiniMax-M3` → `minimax`)
+2. **`provider` field** in the resolved pricing entry (`deepseek-v4-pro` → `deepseek`)
+3. **Bare-model family heuristic** (e.g. `deepseek-v4-pro` without prefix)
+4. **Codex shape** + `~/.codex/auth.json` (valid JWT) → `codex_chatgpt`
+5. **Codex shape** + `$OPENAI_API_KEY` (admin) → `openai_dashboard`
+6. **No match** → `⏱` segment omitted silently
+
+If your adapter activates from a gateway prefix, that's automatic. If it
+activates from a bare model id, add a heuristic in step 3.
 
 ### Contract for adapters
 
 - **Pure**: no global state, no hidden side effects.
-- **Tolerant**: missing fields should yield `error=…`, not crash.
-- **Cached**: `fetched_at` must be set; the bar suppresses re-renders within
-  the FX cache TTL.
+- **Tolerant**: missing fields should yield `source="error"` /
+  `status_label="error"` with an `error=` description — never raise.
+- **Cached**: `fetched_at` must be set on success so the next render can
+  skip re-fetching within the cache TTL.
+- **Provider id is stable contract**: `provider_id` is the cache key in
+  `~/.cache/claude-llm-quota-bar/provider-quota.json` and the registry
+  key in `QUOTA_PROVIDERS`. Renaming it is a hard runtime break — don't.
 
 ---
 
@@ -103,8 +177,8 @@ Edit `pricing.json` (402 entries today) following the existing shape:
 - `input` / `output` are **USD per 1M tokens** (industry standard).
 - `context_window` is in tokens.
 - `modality` ∈ `text` / `vision` / `audio` / `embedding`.
-- `provider` must match an existing `QuotaProvider.name` if you want the
-  bar to show quota for this model.
+- `provider` must match an existing `QuotaProvider.provider_id` if you
+  want the bar to show quota for this model.
 
 You can also re-run `scripts/build_pricing.py` to regenerate from the
 upstream tables (it has a `--diff` mode that only updates entries whose
