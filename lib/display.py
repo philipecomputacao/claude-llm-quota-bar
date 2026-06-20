@@ -80,6 +80,12 @@ EMOJI_QUOTA = "\u23F1"        # ⏱
 EMOJI_CALENDAR = "\U0001F4C5" # 📅
 EMOJI_TIMER = "\u231B"        # ⌛ (session duration; avoids colliding with ⏱ quota)
 
+# Burn-rate visual states. The emoji tells the rate at a glance even when the
+# terminal does not render ANSI colors (e.g. plain logs, some macOS themes).
+BURN_EMOJI_LOW = "\U0001F9CA"   # 🧊 cold / calm usage
+BURN_EMOJI_MID = "\u26A1"       # ⚡ active / busy
+BURN_EMOJI_HIGH = "\U0001F525"  # 🔥 heavy / hot
+
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
 # (community ``cc-statusline`` layout) so users do not lose the visual markers.
@@ -264,12 +270,21 @@ def _render_quota_segment(
     return _colorize(label, color, use_color)
 
 
-def _burn_rate_color(rate: float, opts: DisplayOptions) -> str:
+def _burn_rate_visual(rate: float, opts: DisplayOptions) -> tuple[str, str]:
+    """Return ``(color, emoji)`` for the current burn rate.
+
+    Three visual states keyed off ``opts.burn_warn_per_min`` and
+    ``opts.burn_alert_per_min``:
+
+    * ``rate < warn``   → 🧊 green
+    * ``warn ≤ rate < alert`` → ⚡ yellow
+    * ``rate ≥ alert``  → 🔥 red
+    """
     if rate >= opts.burn_alert_per_min:
-        return RED
+        return RED, BURN_EMOJI_HIGH
     if rate >= opts.burn_warn_per_min:
-        return YELLOW
-    return GREEN
+        return YELLOW, BURN_EMOJI_MID
+    return GREEN, BURN_EMOJI_LOW
 
 
 def _cost_color(brl: float, opts: DisplayOptions) -> str:
@@ -370,12 +385,9 @@ def render(
         else:
             minutes = 1
         burn_rate = active_tokens / minutes if active_tokens > 0 else 0.0
-        rate_str = f"{int(burn_rate)}t/m"
-        if burn_rate >= opts.burn_alert_per_min:
-            rate_str = f"\u26a0 {rate_str}"
-        parts_custo.append(
-            _colorize(rate_str, _burn_rate_color(burn_rate, opts), use_color)
-        )
+        color, emoji = _burn_rate_visual(burn_rate, opts)
+        rate_str = f"{emoji} {int(burn_rate)}t/m"
+        parts_custo.append(_colorize(rate_str, color, use_color))
 
     if opts.verbose and price is not None:
         if not opts.show_both_currencies:
