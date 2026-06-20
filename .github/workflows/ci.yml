@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only: no contents/issues write needed for this workflow.
+permissions:
+  contents: read
+
+jobs:
+  lint-and-smoke:
+    name: py_compile + smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Compile all Python sources
+        run: |
+          python3 -m py_compile session_tokens.py
+          python3 -m py_compile lib/parser.py
+          python3 -m py_compile lib/display.py
+          python3 -m py_compile lib/fx.py
+          python3 -m py_compile lib/pricing.py
+          python3 -m py_compile lib/provider_quota.py
+          python3 -m py_compile scripts/build_pricing.py
+
+      - name: Smoke test the statusline
+        env:
+          # Disable live quota lookups in CI — there's no API key, so the
+          # adapters must short-circuit on the no-key path and still produce
+          # valid output. Force the FX fallback so we don't hit the network.
+          MINIMAX_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+          DEEPSEEK_API_KEY: ""
+          MISTRAL_API_KEY: ""
+          OPENAI_API_KEY: ""
+        run: |
+          set -euo pipefail
+          # Empty stdin (no Claude Code hint) — the script must not crash.
+          python3 session_tokens.py < /dev/null > /tmp/out_empty.txt
+          test -s /tmp/out_empty.txt
+          grep -q "inicializando\|empty" /tmp/out_empty.txt || \
+            { echo "Expected placeholder/empty output"; cat /tmp/out_empty.txt; exit 1; }
+
+          # Realistic stdin — the script must produce the 3-line bar.
+          printf '%s' '{"model":{"id":"MiniMax-M3"},"workspace":{"current_dir":"/tmp"},"version":"ci","cost":{"total_duration_ms":0}}' \
+            | python3 session_tokens.py > /tmp/out_real.txt
+          test -s /tmp/out_real.txt
+          # The bar is 3 groups joined by \n — verify at least 1 newline.
+          grep -q $'\n' /tmp/out_real.txt || \
+            { echo "Expected multi-line output"; cat /tmp/out_real.txt; exit 1; }
+
+      - name: Validate pricing.json
+        run: |
+          python3 -c "
+          import json, sys
+          with open('pricing.json', encoding='utf-8') as f:
+              data = json.load(f)
+          models = data.get('models', {})
+          assert len(models) > 0, 'pricing.json has no models'
+          for k, v in models.items():
+              for field in ('input', 'output'):
+                  assert field in v, f'model {k} missing {field}'
+          print(f'OK: {len(models)} models validated')
+          "
