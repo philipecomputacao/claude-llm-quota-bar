@@ -134,12 +134,23 @@ def _is_minimax_active(
     totals: TokenTotals,
     fallback_model: str | None,
     std_model: str | None,
+    price: ModelPrice | None,
 ) -> bool:
-    """True when the active model for this statusline refresh is MiniMax."""
+    """True when the active model for this statusline refresh is MiniMax.
+
+    Two signals are accepted:
+      1. The provider prefix parsed from the model id (``minimax/MiniMax-M3``
+         or ``anthropic/minimax/MiniMax-M3``).
+      2. The ``provider`` field on the resolved pricing entry — covers bare
+         model ids like ``MiniMax-M3`` that fcc-claude logs in the JSONL
+         after stripping the gateway prefix upstream.
+    """
     candidate = totals.last_model or fallback_model or std_model
-    if not candidate:
-        return False
-    return _provider_from_model(candidate) == "minimax"
+    if candidate and _provider_from_model(candidate) == "minimax":
+        return True
+    if price is not None and price.provider == "minimax":
+        return True
+    return False
 
 
 def _price_for_model(
@@ -224,7 +235,9 @@ def main() -> int:
 
     context = _build_context_info(stdin_hint, project_dir)
     quota = None
-    if opts.show_minimax_quota and _is_minimax_active(totals, fallback_model, std_model):
+    if opts.show_minimax_quota and _is_minimax_active(
+        totals, fallback_model, std_model, price
+    ):
         quota = fetch_minimax_quota()
 
     # When the JSONL has no assistant entries yet, derive provider from the
