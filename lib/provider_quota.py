@@ -586,6 +586,185 @@ class OpenRouterQuotaProvider:
 
 
 # ---------------------------------------------------------------------------
+# Codex / ChatGPT — plan + rate limits from JWT in ``~/.codex/auth.json``
+# ---------------------------------------------------------------------------
+
+
+# Source: Codex CLI docs (https://developers.openai.com/codex) and OpenAI
+# plan-rate-limit page. Values are best-effort and can change without
+# notice — the statusline shows them as informational, not authoritative.
+_CODEX_CHATGPT_PLAN_LIMITS: dict[str, tuple[str, str]] = {
+    # plan_key -> (display_name, "limit text")
+    "free": ("Free", "3 msgs / 40h"),
+    "plus": ("Plus", "80 msgs / 3h"),
+    "pro": ("Pro", "500 msgs / 3h"),
+    "business": ("Business", "100 msgs / 3h"),
+    "enterprise": ("Enterprise", "1000 msgs / 3h"),
+    "edu": ("Edu", "50 msgs / 3h"),
+    "team": ("Team", "100 msgs / 3h"),
+}
+
+
+def _read_codex_auth_file(path: Path = Path.home() / ".codex" / "auth.json") -> dict | None:
+    """Read the Codex CLI auth file (``~/.codex/auth.json``).
+
+    Codex persists the OAuth session in this file after a successful
+    ``codex login`` flow. The file is JSON with at minimum an
+    ``access_token`` field (a JWT). We do not modify the file; we only read
+    the id_token claims to surface the user's ChatGPT plan.
+    """
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def _decode_jwt_payload(jwt: str) -> dict | None:
+    """Decode a JWT payload without verifying its signature.
+
+    We only read the ``https://api.openai.com/auth.chatgpt_plan_type`` claim
+    for informational display; we never use the result for authorisation.
+    JWT format is ``header.payload.signature`` with URL-safe base64 (no
+    padding) in the payload segment.
+    """
+    if not isinstance(jwt, str) or not jwt:
+        return None
+    parts = jwt.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        padded = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload_bytes = __import__("base64").urlsafe_b64decode(padded.encode("ascii"))
+        return json.loads(payload_bytes.decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def _extract_chatgpt_plan(jwt_payload: dict | None) -> str | None:
+    """Pull ``chatgpt_plan_type`` out of the ``https://api.openai.com/auth``
+    namespace, tolerating multiple shapes Codex has used historically."""
+    if not isinstance(jwt_payload, dict):
+        return None
+    auth_ns = jwt_payload.get("https://api.openai.com/auth")
+    if isinstance(auth_ns, dict):
+        value = auth_ns.get("chatgpt_plan_type")
+        if isinstance(value, str) and value:
+            return value
+    # Fallback: top-level claim (some Codex builds flatten this).
+    value = jwt_payload.get("chatgpt_plan_type")
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+class CodexChatgptQuotaProvider:
+    """Plan + rate-limit display for ChatGPT Plus / Pro / Business via Codex.
+
+    The provider reads the OAuth session that ``codex login`` wrote to
+    ``~/.codex/auth.json`` and decodes the JWT payload to extract the
+    ``chatgpt_plan_type`` claim. We do not call the OpenAI backend and we
+    do not attempt to fetch live usage (OpenAI does not expose subscription
+    quota via public API). The statusline shows the known limit for the
+    detected plan as a static informational badge.
+
+    Fallbacks: ``CODEX_ACCESS_TOKEN`` env var; ``id_token`` field if Codex
+    persists the raw JWT there instead of in ``access_token``.
+    """
+
+    provider_id = "codex_chatgpt"
+
+    def fetch(
+        self,
+        api_key: str | None = None,
+        *,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+        cache_path: Path | None = None,
+        now: float | None = None,
+    ) -> QuotaInfo:
+        cache_p = cache_path or _cache_path()
+        cached = _read_cache(cache_p, cache_ttl_seconds)
+        if cached is not None and self.provider_id in cached:
+            return cached[self.provider_id]
+
+        jwt: str | None = None
+        if api_key:
+            jwt = api_key
+        if not jwt:
+            env_token = os.environ.get("CODEX_ACCESS_TOKEN")
+            if env_token:
+                jwt = env_token
+        if not jwt:
+            auth_data = _read_codex_auth_file()
+            if isinstance(auth_data, dict):
+                # Codex auth.json schema: {"access_token": "...", ...}
+                # or sometimes {"id_token": "..."} depending on auth flow.
+                token = auth_data.get("access_token")
+                if isinstance(token, str) and token:
+                    jwt = token
+                else:
+                    token = auth_data.get("id_token")
+                    if isinstance(token, str) and token:
+                        jwt = token
+        if not jwt:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="",
+                source="error",
+                error=(
+                    "Codex auth not found (looked in $CODEX_ACCESS_TOKEN and "
+                    "~/.codex/auth.json)"
+                ),
+            )
+
+        payload = _decode_jwt_payload(jwt)
+        plan_key = _extract_chatgpt_plan(payload)
+        if not plan_key:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="",
+                source="error",
+                error="chatgpt_plan_type claim not present in id_token",
+            )
+
+        plan_key_lower = plan_key.lower()
+        display_name, limit_text = _CODEX_CHATGPT_PLAN_LIMITS.get(
+            plan_key_lower,
+            (plan_key.title(), "limite desconhecido"),
+        )
+        info = QuotaInfo(
+            provider_id=self.provider_id,
+            status_label=f"{display_name} ({limit_text})",
+            detail="limite OpenAI pode mudar",
+            used_pct=None,
+            source="live",
+        )
+        _write_cache(
+            cache_p,
+            {
+                self.provider_id: {
+                    "status_label": info.status_label,
+                    "detail": info.detail,
+                    "used_pct": info.used_pct,
+                    "fetched_at": now or time.time(),
+                },
+            },
+        )
+        return QuotaInfo(
+            provider_id=info.provider_id,
+            status_label=info.status_label,
+            detail=info.detail,
+            used_pct=info.used_pct,
+            source="live",
+            fetched_at=datetime.fromtimestamp(now or time.time(), tz=timezone.utc),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registry — only providers with live quota APIs are listed.
 # All other 16 fcc-claude providers return ``None`` from
 # :func:`get_quota_for_provider` and the statusline omits the ``⏱`` segment.
@@ -595,6 +774,7 @@ class OpenRouterQuotaProvider:
 QUOTA_PROVIDERS: dict[str, QuotaProvider] = {
     "minimax": MinimaxQuotaProvider(),
     "open_router": OpenRouterQuotaProvider(),
+    "codex_chatgpt": CodexChatgptQuotaProvider(),
 }
 
 

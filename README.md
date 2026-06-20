@@ -205,15 +205,72 @@ provider ativo tem um adapter vivo registrado.
 | `ollama` | sim | sim | sim | — |
 | `minimax` | sim | sim | sim | **sim** (Token Plan 5h+week) |
 
+> **Codex / ChatGPT Plus-Pro-Business-Edu-Enterprise:** detecta automaticamente
+> quando o model ativo começa com `gpt-` ou `o1`-`o5` E existe `~/.codex/auth.json`
+> (do `codex login`). Mostra o plano + limite conhecido, sem usage real
+> (OpenAI não expõe subscription quota via API pública).
+
 ### Quota adapters ativos
 
 | Provider | Endpoint | Formato exibido |
 |---|---|---|
 | `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `⏱ 60% livre (reset 2h48m)` |
 | `open_router` | `GET https://openrouter.ai/api/v1/credits` | `⏱ $7.50 credits ($2.50 used of $10.00)` |
+| `codex_chatgpt` | Lê `~/.codex/auth.json` e decodifica JWT | `⏱ Plus (80 msgs / 3h)` (estático) |
 
 Adicionar novo adapter: implementar `QuotaProvider` em `lib/provider_quota.py` e
 registrar em `QUOTA_PROVIDERS`.
+
+## OpenAI / Codex ChatGPT plan tracking
+
+Quando o model ativo é da família OpenAI GPT/o-series (`gpt-5`, `gpt-4o`,
+`gpt-5-codex`, `o3`, etc.) E o usuário está logado no Codex CLI
+(`codex login` com ChatGPT Plus/Pro/Business/Edu/Enterprise), a statusline
+mostra o plano detectado:
+
+```
+[gpt-5-codex] • ⬆4.5k ⬇1.2k ↻R12k • ⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)
+```
+
+- **Origem do token:** lê `~/.codex/auth.json` (escrito pelo `codex login`).
+  Também aceita `$CODEX_ACCESS_TOKEN` env var.
+- **Endpoint:** nenhum — o statusline decodifica o JWT salvo localmente
+  (sem chamada de rede). O Codex já gravou o token após OAuth.
+- **Claim usada:** `https://api.openai.com/auth.chatgpt_plan_type` no payload
+  do JWT, parseada conforme `codex-rs/login/src/token_data.rs`.
+- **Limites conhecidos** (tabela hardcoded — OpenAI pode mudar):
+
+  | Plano | Limite exibido |
+  |---|---|
+  | `free` | `3 msgs / 40h` |
+  | `plus` | `80 msgs / 3h` |
+  | `pro` | `500 msgs / 3h` |
+  | `business` | `100 msgs / 3h` |
+  | `enterprise` | `1000 msgs / 3h` |
+  | `edu` | `50 msgs / 3h` |
+  | `team` | `100 msgs / 3h` |
+  | _outros_ | `limite desconhecido` |
+
+- **Sem usage real:** OpenAI **não expõe** quota restante de subscription
+  via API pública. Os headers `x-ratelimit-*` em responses são de tier de
+  API key, não de subscription. Por isso o adapter mostra só o **limite
+  estático** do plano + nota `limite OpenAI pode mudar`.
+- **Sem countdown:** reset windows da subscription não são documentados.
+- **Segurança:** decodificamos o JWT **sem verificar assinatura**. Usamos só
+  pra extrair claim informativa (chatgpt_plan_type) — jamais pra autorização.
+  É o mesmo padrão que o `codex login status` faz internamente.
+- **Cache:** `~/.cache/claude-code-statusline/provider-quota.json`, TTL 60s.
+
+Para testar manualmente:
+
+```bash
+# 1. Login no Codex CLI
+codex login   # segue fluxo OAuth
+
+# 2. Rode o script diretamente
+python3 ~/.claude/statusline/session_tokens.py
+# Vai detectar ~/.codex/auth.json e mostrar o plano
+```
 
 ## Troubleshooting
 

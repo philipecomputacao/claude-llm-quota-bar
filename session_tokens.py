@@ -147,11 +147,14 @@ def _active_quota_provider(
 ) -> str | None:
     """Return the provider_id that has a live quota adapter, or ``None``.
 
-    Two signals are accepted, in priority order:
+    Detection order:
       1. Provider prefix parsed from the model id (``openrouter/...``,
          ``anthropic/openrouter/...``, or bare ``MiniMax-M3``).
-      2. The ``provider`` field on the resolved pricing entry — covers bare
-         model ids that fcc-claude logs after stripping the gateway prefix.
+      2. The ``provider`` field on the resolved pricing entry.
+      3. **Heuristic:** if the model id looks like a Codex model (``gpt-5``,
+         ``gpt-5-codex``, ``o3``, ``o4-mini``, etc.) AND ``~/.codex/auth.json``
+         is present (or ``$CODEX_ACCESS_TOKEN`` is set), return
+         ``codex_chatgpt`` so the plan badge shows.
 
     Returns ``None`` for providers without a wired-up adapter (the statusline
     omits the ``⏱`` segment entirely in that case).
@@ -167,7 +170,45 @@ def _active_quota_provider(
     if provider_id is None and price is not None:
         if get_quota_for_provider(price.provider):
             provider_id = price.provider
+    if provider_id is None and _looks_like_codex_model(candidate):
+        if _codex_session_active() and get_quota_for_provider("codex_chatgpt"):
+            provider_id = "codex_chatgpt"
     return provider_id
+
+
+_CODEX_MODEL_PREFIXES = ("gpt-5", "gpt-4", "o1", "o3", "o4", "o5")
+# Codex may also serve bare or hyphenated variants of the form ``gpt-4o``,
+# ``gpt-3.5-turbo`` etc. — match anything that starts with ``gpt-`` since all
+# OpenAI GPT models are routable through the Codex backend today.
+_CODEX_MODEL_FAMILY_PREFIXES = ("gpt-",)
+
+
+def _looks_like_codex_model(model_id: str | None) -> bool:
+    """True if ``model_id`` looks like a model the Codex CLI can serve.
+
+    Recognised shapes: ``gpt-5``, ``gpt-5-codex``, ``gpt-5-mini``, ``gpt-4o``,
+    ``gpt-3.5-turbo``, ``o1``, ``o3``, ``o4-mini``, and the bare ``o5`` etc.
+    """
+    if not model_id:
+        return False
+    model_lower = model_id.lower()
+    if any(
+        model_lower.startswith(prefix)
+        for prefix in _CODEX_MODEL_FAMILY_PREFIXES
+    ):
+        return True
+    return any(
+        model_lower == prefix or model_lower.startswith(prefix + "-")
+        for prefix in _CODEX_MODEL_PREFIXES
+    )
+
+
+def _codex_session_active() -> bool:
+    """True if the Codex CLI has an auth file or env token available locally."""
+    if os.environ.get("CODEX_ACCESS_TOKEN"):
+        return True
+    codex_home = Path.home() / ".codex"
+    return (codex_home / "auth.json").exists()
 
 
 def _price_for_model(
