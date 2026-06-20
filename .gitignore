@@ -1,0 +1,93 @@
+# =============================================================================
+# .gitignore — Template Padrão da Central
+# =============================================================================
+# Copie como `.gitignore` na raiz do projeto.
+# Cubra mais coisas conforme o stack específico (Node, Python, etc.).
+# =============================================================================
+
+# ── Sistema operacional ───────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+desktop.ini
+
+# ── Google Drive sync (a pasta da central é sincronizada) ─────────────────
+.tmp.drivedownload/
+.tmp.driveupload/
+# arquivo Icon\r do macOS (pasta com ícone customizado) — note o ?
+Icon?
+
+# ── Editores ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs e debug ──────────────────────────────────────────────────────────
+*.log
+logs/
+debug/
+.cache/
+
+# ── Segredos e credenciais (NUNCA committar) ──────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+client_secret*.json
+service-account*.json
+credentials.json
+*-credentials.json
+token*.json
+.credentials/
+
+# ── n8n ───────────────────────────────────────────────────────────────────
+# Workflow com credenciais reais não vai pro repo.
+# Manter versão sanitizada em `*.example.json` ou usar template.
+n8n-workflow.json
+!n8n-workflow.example.json
+
+# ── Node / JavaScript ─────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json.bak
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+
+# ── Dumps, exports, builds locais ─────────────────────────────────────────
+# Pra projetos que geram CSV / PDF localmente como teste
+exports/
+dumps/
+build/
+dist/
+*.tmp
+
+# ── Arquivos pessoais que não devem ir pro repo público ───────────────────
+# (descomente conforme necessidade do projeto)
+# NOTES.md
+# TODO-pessoal.md
+
+# ── Triagem GitHub (relevante só na ferramentas/; cole se aplicar) ────────
+# _inbox/github/*/clone/
+# _archive/github-adotados/*/clone/
+# _archive/github-rejeitados/*/clone/
+
+# ── Python runtime cache (statusline script) ──────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
