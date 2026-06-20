@@ -189,9 +189,9 @@ provider ativo tem um adapter vivo registrado.
 | `nvidia_nim` | sim | sim | sim | — sem API pública |
 | `open_router` | sim | sim | sim | **sim** (credits API) |
 | `gemini` | sim | sim | sim | — sem API pública |
-| `deepseek` | sim | sim | sim | — |
-| `mistral` | sim | sim | sim | — |
-| `mistral_codestral` | sim | sim | sim | — |
+| `deepseek` | sim | sim | sim | **sim** (`/user/balance`) |
+| `mistral` | sim | sim | sim | **sim** (`/v1/usage`) |
+| `mistral_codestral` | sim | sim | sim | **sim** (via alias → `mistral`) |
 | `opencode` | sim | sim | sim | — |
 | `opencode_go` | sim | sim | sim | — |
 | `wafer` | sim | sim | sim | — |
@@ -204,19 +204,32 @@ provider ativo tem um adapter vivo registrado.
 | `llamacpp` | sim | sim | sim | — |
 | `ollama` | sim | sim | sim | — |
 | `minimax` | sim | sim | sim | **sim** (Token Plan 5h+week) |
+| OpenAI (admin) | sim | sim | sim | **sim** (`/v1/dashboard/billing/credit_grants`) |
 
 > **Codex / ChatGPT Plus-Pro-Business-Edu-Enterprise:** detecta automaticamente
 > quando o model ativo começa com `gpt-` ou `o1`-`o5` E existe `~/.codex/auth.json`
-> (do `codex login`). Mostra o plano + limite conhecido, sem usage real
-> (OpenAI não expõe subscription quota via API pública).
+> (do `codex login`) com JWT válido. Mostra o plano + limite conhecido, sem
+> usage real (OpenAI não expõe subscription quota via API pública).
+> 
+> **OpenAI admin dashboard (gpt-/o1-/o3-/etc sem codex):** ativa quando o
+> model tem shape Codex mas o Codex auth NÃO está presente E `OPENAI_API_KEY`
+> está set. Requer **admin key** (sk- regular retorna 403; o adapter omite o
+> segmento nesse caso).
 
 ### Quota adapters ativos
 
-| Provider | Endpoint | Formato exibido |
-|---|---|---|
-| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `⏱ 60% livre (reset 2h48m)` |
-| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `⏱ $7.50 credits ($2.50 used of $10.00)` |
-| `codex_chatgpt` | Lê `~/.codex/auth.json` e decodifica JWT | `⏱ Plus (80 msgs / 3h)` (estático) |
+| Provider | Endpoint | Auth | Formato exibido |
+|---|---|---|---|
+| `minimax` | `GET https://www.minimax.io/v1/token_plan/remains` | `MINIMAX_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 60% livre (reset 2h48m)` |
+| `open_router` | `GET https://openrouter.ai/api/v1/credits` | `OPENROUTER_API_KEY` (env ou `~/.fcc/.env`) | `⏱ $7.50 credits ($2.50 used of $10.00)` |
+| `deepseek` | `GET https://api.deepseek.com/user/balance` | `DEEPSEEK_API_KEY` (env ou `~/.fcc/.env`) | `⏱ $4.50 USD (usou $0.50 de $5.00 free)` |
+| `mistral` | `GET https://api.mistral.ai/v1/usage` | `MISTRAL_API_KEY` (env ou `~/.fcc/.env`) | `⏱ 1.7M tokens (modelos: mistral-large-latest, mistral-small-latest)` |
+| `openai_dashboard` | `GET https://api.openai.com/v1/dashboard/billing/credit_grants` | `OPENAI_API_KEY` (admin only) | `⏱ $87.66 / $100.00 ($12.34 used)` |
+| `codex_chatgpt` | Lê `~/.codex/auth.json` e decodifica JWT (sem rede) | `~/.codex/auth.json` ou `$CODEX_ACCESS_TOKEN` | `⏱ Plus (80 msgs / 3h) (limite OpenAI pode mudar)` |
+
+Aliases:
+* `codestral` → `mistral` (o gateway `codestral` do fcc-claude atinge o
+  mesmo backend Mistral, então o uso aparece no `/v1/usage` da Mistral).
 
 Adicionar novo adapter: implementar `QuotaProvider` em `lib/provider_quota.py` e
 registrar em `QUOTA_PROVIDERS`.

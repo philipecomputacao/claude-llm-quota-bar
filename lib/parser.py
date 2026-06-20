@@ -79,6 +79,18 @@ class AssistantMessage:
     cache_read_tokens: int
 
 
+# Bare model id prefixes whose direct-upstream provider is well known. Used
+# when the model is referenced without a gateway prefix (e.g. ``deepseek-v4-pro``
+# or ``mistral-large-latest`` instead of ``deepseek/deepseek-v4-pro``). The
+# pricing entry may still route through a gateway (opencode_go/opencode),
+# but the *direct* provider is what the statusline reports.
+_BARE_MODEL_PROVIDER_HINTS: tuple[tuple[str, str], ...] = (
+    ("deepseek-", "deepseek"),
+    ("mistral-", "mistral"),
+    ("codestral-", "mistral"),
+)
+
+
 def _provider_from_model(model_id: str) -> str:
     """Extract provider prefix from a model id.
 
@@ -87,11 +99,22 @@ def _provider_from_model(model_id: str) -> str:
     ``claude-3-freecc-no-thinking/minimax/MiniMax-M3``). For gateway IDs the
     ``anthropic/`` / ``claude-3-freecc-no-thinking/`` prefix is stripped first
     so the real upstream provider (``minimax``) is returned, not ``anthropic``.
+
+    Bare model ids whose family is well known (e.g. ``deepseek-v4-pro``,
+    ``mistral-large-latest``, ``codestral-2508``) also return their direct
+    provider — even though fcc-claude's pricing entry may route them through
+    a gateway (opencode / opencode_go).
     """
     stripped = _strip_gateway_prefix(model_id)
     if "/" in stripped:
         return stripped.split("/", 1)[0]
-    return "anthropic" if stripped.startswith("claude") else "unknown"
+    if stripped.startswith("claude"):
+        return "anthropic"
+    model_lower = stripped.lower()
+    for prefix, provider in _BARE_MODEL_PROVIDER_HINTS:
+        if model_lower.startswith(prefix):
+            return provider
+    return "unknown"
 
 
 # Gateway ID prefixes used by free-claude-code (fcc-claude). See

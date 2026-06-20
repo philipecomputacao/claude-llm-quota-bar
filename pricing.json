@@ -12,7 +12,8 @@
     "billing_mode=free_tier: custo zero (free tier).",
     "billing_mode=token_plan: seria zero se o modelo estiver no Token Plan.",
     "billing_mode=pay_as_you_go: cobra por token (padrao).",
-    "billing_mode=unknown: sem informacao - revisar manualmente."
+    "billing_mode=unknown: sem informacao - revisar manualmente.",
+    "Bare model ids (deepseek-v4-pro, mistral-large-latest, codestral-2508) added 2026-06-20 with direct provider routing for quota adapter activation."
   ],
   "models": {
     "MiniMax-M2": {
@@ -247,7 +248,7 @@
       "tier": "deepseek"
     },
     "deepseek-v4-flash": {
-      "provider": "opencode_go",
+      "provider": "deepseek",
       "display": "deepseek-v4-flash (opencode_go)",
       "input": 0.27,
       "output": 1.1,
@@ -270,7 +271,7 @@
       "notes": "Free tier on OpenCode Zen/Go."
     },
     "deepseek-v4-pro": {
-      "provider": "opencode_go",
+      "provider": "deepseek",
       "display": "deepseek-v4-pro (opencode_go)",
       "input": 0.27,
       "output": 1.1,
@@ -4457,6 +4458,39 @@
       "unit": "per_million_tokens",
       "billing_mode": "pay_as_you_go",
       "tier": "qwen-large"
+    },
+    "mistral-large-latest": {
+      "provider": "mistral",
+      "display": "mistral-large-latest",
+      "input": 2.0,
+      "output": 6.0,
+      "cache_read": 0.2,
+      "cache_write": 2.0,
+      "unit": "per_million_tokens",
+      "billing_mode": "pay_as_you_go",
+      "tier": "qwen-medium"
+    },
+    "mistral-small-latest": {
+      "provider": "mistral",
+      "display": "mistral-small-latest",
+      "input": 0.2,
+      "output": 0.6,
+      "cache_read": 0.02,
+      "cache_write": 0.2,
+      "unit": "per_million_tokens",
+      "billing_mode": "pay_as_you_go",
+      "tier": "qwen-medium"
+    },
+    "codestral-2508": {
+      "provider": "mistral",
+      "display": "codestral-2508",
+      "input": 0.3,
+      "output": 0.9,
+      "cache_read": 0.03,
+      "cache_write": 0.3,
+      "unit": "per_million_tokens",
+      "billing_mode": "pay_as_you_go",
+      "tier": "qwen-medium"
     }
   },
   "fallback": {

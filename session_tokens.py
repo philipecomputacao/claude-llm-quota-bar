@@ -149,12 +149,19 @@ def _active_quota_provider(
 
     Detection order:
       1. Provider prefix parsed from the model id (``openrouter/...``,
-         ``anthropic/openrouter/...``, or bare ``MiniMax-M3``).
-      2. The ``provider`` field on the resolved pricing entry.
+         ``deepseek/...``, ``mistral/...``, or bare ``MiniMax-M3``).
+      2. The ``provider`` field on the resolved pricing entry (covers bare
+         model names like ``deepseek-v4-flash`` that resolve to
+         ``provider="deepseek"`` via ``pricing.json``).
       3. **Heuristic:** if the model id looks like a Codex model (``gpt-5``,
          ``gpt-5-codex``, ``o3``, ``o4-mini``, etc.) AND ``~/.codex/auth.json``
          is present (or ``$CODEX_ACCESS_TOKEN`` is set), return
          ``codex_chatgpt`` so the plan badge shows.
+      4. **Heuristic:** same Codex-shaped model id but the Codex session is
+         NOT active → if ``$OPENAI_API_KEY`` is set, return
+         ``openai_dashboard`` so the credit-grants segment shows (admin
+         keys only — non-admin keys surface an error and the segment
+         is omitted).
 
     Returns ``None`` for providers without a wired-up adapter (the statusline
     omits the ``⏱`` segment entirely in that case).
@@ -166,13 +173,74 @@ def _active_quota_provider(
     if candidate:
         derived = _provider_from_model(candidate)
         if derived not in {"anthropic", "unknown"} and get_quota_for_provider(derived):
-            provider_id = derived
+            # Normalize aliases (e.g. ``codestral`` → ``mistral``).
+            provider_id = _normalize_quota_provider_id(derived)
     if provider_id is None and price is not None:
-        if get_quota_for_provider(price.provider):
-            provider_id = price.provider
+        adapter = get_quota_for_provider(price.provider)
+        if adapter is not None:
+            provider_id = _normalize_quota_provider_id(price.provider)
+    # Bare model id (e.g. ``deepseek-v4-pro``, ``mistral-large-latest``) often
+    # resolves to a gateway (``opencode_go``, ``opencode``) in pricing.json —
+    # even though the *direct* upstream is DeepSeek or Mistral. Detect the
+    # family from the id prefix and re-route to the direct provider.
+    if provider_id is None and candidate:
+        direct = _direct_provider_for_bare_model(candidate)
+        if direct is not None and get_quota_for_provider(direct):
+            provider_id = _normalize_quota_provider_id(direct)
     if provider_id is None and _looks_like_codex_model(candidate):
         if _codex_session_active() and get_quota_for_provider("codex_chatgpt"):
             provider_id = "codex_chatgpt"
+        elif (
+            os.environ.get("OPENAI_API_KEY")
+            and get_quota_for_provider("openai_dashboard")
+        ):
+            provider_id = "openai_dashboard"
+    return provider_id
+
+
+# Direct provider families whose quota API is reachable when the user uses
+# the model name *without* a gateway prefix. ``provider`` is the canonical
+# name registered in ``QUOTA_PROVIDERS``.
+_DIRECT_PROVIDER_MODEL_FAMILIES: tuple[tuple[str, str], ...] = (
+    # family_prefix -> provider_id
+    ("deepseek-", "deepseek"),
+    ("deepseek/", "deepseek"),  # legacy / defensive
+    ("mistral-", "mistral"),
+    ("mistral/", "mistral"),
+    ("codestral-", "mistral"),  # codestral hits the Mistral backend
+    ("codestral/", "mistral"),
+)
+
+
+def _direct_provider_for_bare_model(model_id: str) -> str | None:
+    """Return the direct-upstream provider for a bare model id, or ``None``.
+
+    The statusline uses this when the pricing entry routes the bare model
+    through a gateway (e.g. ``opencode_go``) that has no quota API, while
+    the *direct* upstream (DeepSeek, Mistral) does. The match is intentionally
+    conservative: only well-known model families are re-routed.
+    """
+    if not model_id or "/" in model_id:
+        # If the model already has a gateway prefix, ``_provider_from_model``
+        # has already extracted the correct provider in the caller.
+        return None
+    model_lower = model_id.lower()
+    for prefix, provider_id in _DIRECT_PROVIDER_MODEL_FAMILIES:
+        if model_lower.startswith(prefix):
+            return provider_id
+    return None
+
+
+def _normalize_quota_provider_id(provider_id: str) -> str:
+    """Normalize a provider_id to its canonical quota registry name.
+
+    Currently the only alias is ``codestral`` → ``mistral`` (the fcc-claude
+    ``codestral`` gateway hits the same Mistral backend, so its usage is
+    surfaced through the Mistral ``/v1/usage`` endpoint). Other ids pass
+    through unchanged.
+    """
+    if provider_id == "codestral":
+        return "mistral"
     return provider_id
 
 
@@ -204,11 +272,30 @@ def _looks_like_codex_model(model_id: str | None) -> bool:
 
 
 def _codex_session_active() -> bool:
-    """True if the Codex CLI has an auth file or env token available locally."""
+    """True if the Codex CLI has a usable auth file or env token available.
+
+    An empty ``auth.json`` (``{}``) is treated as *inactive* — only files that
+    contain a non-empty ``access_token`` (or ``id_token``) count. This avoids
+    surfacing a broken CodexChatgptQuotaProvider when the user created an
+    empty placeholder file for some other reason.
+    """
     if os.environ.get("CODEX_ACCESS_TOKEN"):
         return True
     codex_home = Path.home() / ".codex"
-    return (codex_home / "auth.json").exists()
+    auth_path = codex_home / "auth.json"
+    if not auth_path.exists():
+        return False
+    try:
+        raw = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(raw, dict):
+        return False
+    for key in ("access_token", "id_token"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def _price_for_model(

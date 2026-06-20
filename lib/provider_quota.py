@@ -11,10 +11,18 @@ Currently wired up:
   (5h rolling + weekly windows, see the platform Token Plan docs).
 * ``open_router`` → ``GET https://openrouter.ai/api/v1/credits``
   (total credits minus total usage).
+* ``codex_chatgpt`` → reads ``~/.codex/auth.json`` and decodes the JWT
+  to surface the user's ChatGPT plan + static rate-limit badge.
+* ``deepseek`` → ``GET https://api.deepseek.com/user/balance``
+  (USD balance split into granted vs topped-up).
+* ``openai_dashboard`` → ``GET https://api.openai.com/v1/dashboard/billing/credit_grants``
+  (admin key only — regular sk- keys return 403).
+* ``mistral`` → ``GET https://api.mistral.ai/v1/usage``
+  (cumulative tokens used in current billing period).
 
-All other 16 providers in the fcc-claude catalog have no public quota API at
-this time. Add an adapter below and register it in :data:`QUOTA_PROVIDERS`
-to enable the segment.
+All other fcc-claude providers have no public quota API at this time. Add an
+adapter below and register it in :data:`QUOTA_PROVIDERS` to enable the
+segment.
 """
 
 from __future__ import annotations
@@ -765,8 +773,532 @@ class CodexChatgptQuotaProvider:
 
 
 # ---------------------------------------------------------------------------
+# DeepSeek — USD balance (granted + topped-up)
+# ---------------------------------------------------------------------------
+
+
+_DEEPSEEK_URL = "https://api.deepseek.com/user/balance"
+
+
+def _read_deepseek_key_from_fcc_env(path: Path = _FCC_ENV_PATH) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    import re
+
+    match = re.search(
+        r"""^\s*DEEPSEEK_API_KEY\s*=\s*["']?([^"'#\r\n]+)["']?""",
+        text,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    key = match.group(1).strip()
+    return key or None
+
+
+def _parse_deepseek_payload(payload: object) -> QuotaInfo:
+    """Parse ``GET /user/balance`` response.
+
+    Shape: ``{"balance_infos": [{"currency": "USD", "total_balance": "4.50",
+    "granted_balance": "5.00", "topped_up_balance": "0.00"}], "available":
+    "4.50", "used": "0.50"}`` (values may be numeric or numeric strings).
+    """
+    if not isinstance(payload, dict):
+        return QuotaInfo(
+            provider_id="deepseek",
+            status_label="error",
+            source="error",
+            error="payload not object",
+        )
+    entries = payload.get("balance_infos")
+    if not isinstance(entries, list) or not entries:
+        return QuotaInfo(
+            provider_id="deepseek",
+            status_label="error",
+            source="error",
+            error="no balance_infos in payload",
+        )
+    # Prefer USD; fall back to first entry.
+    chosen: dict[str, object] | None = None
+    for entry in entries:
+        if isinstance(entry, dict) and (
+            entry.get("currency") == "USD"
+            or str(entry.get("currency", "")).upper() == "USD"
+        ):
+            chosen = entry
+            break
+    if chosen is None:
+        for entry in entries:
+            if isinstance(entry, dict):
+                chosen = entry
+                break
+    if chosen is None:
+        return QuotaInfo(
+            provider_id="deepseek",
+            status_label="error",
+            source="error",
+            error="no usable balance_infos entry",
+        )
+
+    total = _as_float(chosen.get("total_balance"))
+    granted = _as_float(chosen.get("granted_balance"))
+    topped = _as_float(chosen.get("topped_up_balance"))
+    currency = str(chosen.get("currency", "USD")).upper() or "USD"
+
+    if total is None:
+        # Some responses only expose ``available`` / ``used`` at top level.
+        available = _as_float(payload.get("available"))
+        if available is not None:
+            return QuotaInfo(
+                provider_id="deepseek",
+                status_label=f"${available:.2f} {currency}",
+                detail="balance (sem breakdown)",
+                used_pct=None,
+                source="live",
+            )
+        return QuotaInfo(
+            provider_id="deepseek",
+            status_label="?",
+            source="error",
+            error="total_balance missing",
+        )
+
+    used_pct: float | None = None
+    detail: str | None = None
+    granted_eff = granted or 0.0
+    topped_eff = topped or 0.0
+    allocated = granted_eff + topped_eff
+    if allocated > 0:
+        used = max(allocated - total, 0.0)
+        used_pct = used / allocated * 100.0
+        if topped_eff > 0:
+            detail = (
+                f"usou ${used:.2f} de ${granted_eff:.2f} free "
+                f"+ ${topped_eff:.2f} topup"
+            )
+        else:
+            detail = f"usou ${used:.2f} de ${granted_eff:.2f} free"
+
+    return QuotaInfo(
+        provider_id="deepseek",
+        status_label=f"${total:.2f} {currency}",
+        detail=detail,
+        used_pct=used_pct,
+        source="live",
+    )
+
+
+class DeepSeekQuotaProvider:
+    """Live USD balance for DeepSeek (``GET /user/balance``)."""
+
+    provider_id = "deepseek"
+
+    def fetch(
+        self,
+        api_key: str | None = None,
+        *,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+        cache_path: Path | None = None,
+        now: float | None = None,
+    ) -> QuotaInfo:
+        cache_p = cache_path or _cache_path()
+        if not api_key:
+            api_key = (
+                _read_deepseek_key_from_fcc_env()
+                or os.environ.get("DEEPSEEK_API_KEY")
+            )
+        if not api_key:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="DEEPSEEK_API_KEY not set",
+            )
+
+        cached = _read_cache(cache_p, cache_ttl_seconds)
+        if cached is not None and self.provider_id in cached:
+            return cached[self.provider_id]
+
+        status, body = _request_json(
+            _DEEPSEEK_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+            },
+        )
+        if status != 200:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error=f"upstream HTTP {status}: {str(body)[:120]}",
+            )
+        if not isinstance(body, dict):
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="payload not object",
+            )
+
+        info = _parse_deepseek_payload(body)
+        if info.source == "live":
+            _write_cache(
+                cache_p,
+                {
+                    self.provider_id: {
+                        "status_label": info.status_label,
+                        "detail": info.detail,
+                        "used_pct": info.used_pct,
+                        "fetched_at": now or time.time(),
+                    },
+                },
+            )
+            return QuotaInfo(
+                provider_id=info.provider_id,
+                status_label=info.status_label,
+                detail=info.detail,
+                used_pct=info.used_pct,
+                source="live",
+                fetched_at=datetime.fromtimestamp(now or time.time(), tz=timezone.utc),
+            )
+        return info
+
+
+# ---------------------------------------------------------------------------
+# OpenAI dashboard — credit grants (admin keys only)
+# ---------------------------------------------------------------------------
+
+
+_OPENAI_DASHBOARD_URL = (
+    "https://api.openai.com/v1/dashboard/billing/credit_grants"
+)
+
+
+def _read_openai_key_from_fcc_env(path: Path = _FCC_ENV_PATH) -> str | None:
+    """Read ``OPENAI_API_KEY`` from ``~/.fcc/.env`` (admin or regular)."""
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    import re
+
+    match = re.search(
+        r"""^\s*OPENAI_API_KEY\s*=\s*["']?([^"'#\r\n]+)["']?""",
+        text,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    key = match.group(1).strip()
+    return key or None
+
+
+def _parse_openai_dashboard_payload(payload: object) -> QuotaInfo:
+    """Parse ``GET /v1/dashboard/billing/credit_grants`` response.
+
+    Shape: ``{"object": "credit_summary", "total_granted": 100.0,
+    "total_used": 2.5, "total_available": 97.5, "grants_data": {...}}``.
+    """
+    if not isinstance(payload, dict):
+        return QuotaInfo(
+            provider_id="openai_dashboard",
+            status_label="error",
+            source="error",
+            error="payload not object",
+        )
+
+    total = _as_float(payload.get("total_granted") or payload.get("total_credit"))
+    used = _as_float(payload.get("total_used"))
+    if total is None or used is None:
+        return QuotaInfo(
+            provider_id="openai_dashboard",
+            status_label="?",
+            source="error",
+            error=f"missing credit_grants fields: total={total} used={used}",
+        )
+
+    available = max(total - used, 0.0)
+    used_pct = (used / total * 100.0) if total > 0 else None
+    return QuotaInfo(
+        provider_id="openai_dashboard",
+        status_label=f"${available:.2f} / ${total:.2f}",
+        detail=f"${used:.2f} used",
+        used_pct=used_pct,
+        source="live",
+    )
+
+
+class OpenAIDashboardQuotaProvider:
+    """Live credit-grants for OpenAI dashboard.
+
+    Requires an **admin** OpenAI API key (regular ``sk-`` keys get HTTP 403
+    on this endpoint). If a non-admin key is in use the adapter surfaces the
+    upstream HTTP 403 in the ``error`` field; the statusline simply omits the
+    ``⏱`` segment in that case.
+    """
+
+    provider_id = "openai_dashboard"
+
+    def fetch(
+        self,
+        api_key: str | None = None,
+        *,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+        cache_path: Path | None = None,
+        now: float | None = None,
+    ) -> QuotaInfo:
+        cache_p = cache_path or _cache_path()
+        if not api_key:
+            api_key = (
+                _read_openai_key_from_fcc_env()
+                or os.environ.get("OPENAI_API_KEY")
+            )
+        if not api_key:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="OPENAI_API_KEY not set",
+            )
+
+        cached = _read_cache(cache_p, cache_ttl_seconds)
+        if cached is not None and self.provider_id in cached:
+            return cached[self.provider_id]
+
+        status, body = _request_json(
+            _OPENAI_DASHBOARD_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        if status != 200:
+            # 403 on this endpoint means the key is not an admin key.
+            # We surface the error and let the statusline omit the segment.
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error=(
+                    f"upstream HTTP {status} (admin key required?): "
+                    f"{str(body)[:120]}"
+                ),
+            )
+        if not isinstance(body, dict):
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="payload not object",
+            )
+
+        info = _parse_openai_dashboard_payload(body)
+        if info.source == "live":
+            _write_cache(
+                cache_p,
+                {
+                    self.provider_id: {
+                        "status_label": info.status_label,
+                        "detail": info.detail,
+                        "used_pct": info.used_pct,
+                        "fetched_at": now or time.time(),
+                    },
+                },
+            )
+            return QuotaInfo(
+                provider_id=info.provider_id,
+                status_label=info.status_label,
+                detail=info.detail,
+                used_pct=info.used_pct,
+                source="live",
+                fetched_at=datetime.fromtimestamp(now or time.time(), tz=timezone.utc),
+            )
+        return info
+
+
+# ---------------------------------------------------------------------------
+# Mistral — cumulative usage in current billing period
+# ---------------------------------------------------------------------------
+
+
+_MISTRAL_URL = "https://api.mistral.ai/v1/usage"
+
+
+def _read_mistral_key_from_fcc_env(path: Path = _FCC_ENV_PATH) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    import re
+
+    match = re.search(
+        r"""^\s*MISTRAL_API_KEY\s*=\s*["']?([^"'#\r\n]+)["']?""",
+        text,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    key = match.group(1).strip()
+    return key or None
+
+
+def _parse_mistral_payload(payload: object) -> QuotaInfo:
+    """Parse ``GET /v1/usage`` response.
+
+    Shape: ``{"object": "list", "data": [{"timestamp": "...",
+    "model": "mistral-large-latest", "prompt_tokens": 1234,
+    "completion_tokens": 567, "total_tokens": 1801}, ...],
+    "object": "usage"}`` — we sum ``total_tokens`` across the period.
+    """
+    if not isinstance(payload, dict):
+        return QuotaInfo(
+            provider_id="mistral",
+            status_label="error",
+            source="error",
+            error="payload not object",
+        )
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return QuotaInfo(
+            provider_id="mistral",
+            status_label="error",
+            source="error",
+            error="no data array in usage payload",
+        )
+
+    total_tokens = 0
+    models_seen: set[str] = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        tok = _as_int(entry.get("total_tokens"))
+        if tok is not None:
+            total_tokens += tok
+        model = entry.get("model")
+        if isinstance(model, str) and model:
+            models_seen.add(model)
+
+    if not data:
+        return QuotaInfo(
+            provider_id="mistral",
+            status_label="0 tokens",
+            detail="sem uso no período",
+            used_pct=None,
+            source="live",
+        )
+
+    if total_tokens >= 1_000_000:
+        label = f"{total_tokens / 1_000_000:.1f}M tokens"
+    elif total_tokens >= 1_000:
+        label = f"{total_tokens / 1_000:.1f}k tokens"
+    else:
+        label = f"{total_tokens} tokens"
+
+    detail: str | None = None
+    if models_seen:
+        # Cap to 3 most-likely-interesting model names.
+        detail = "modelos: " + ", ".join(sorted(models_seen)[:3])
+        if len(models_seen) > 3:
+            detail += f", +{len(models_seen) - 3}"
+
+    return QuotaInfo(
+        provider_id="mistral",
+        status_label=label,
+        detail=detail,
+        used_pct=None,
+        source="live",
+    )
+
+
+class MistralQuotaProvider:
+    """Live cumulative usage for Mistral (``GET /v1/usage``)."""
+
+    provider_id = "mistral"
+
+    def fetch(
+        self,
+        api_key: str | None = None,
+        *,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+        cache_path: Path | None = None,
+        now: float | None = None,
+    ) -> QuotaInfo:
+        cache_p = cache_path or _cache_path()
+        if not api_key:
+            api_key = (
+                _read_mistral_key_from_fcc_env()
+                or os.environ.get("MISTRAL_API_KEY")
+            )
+        if not api_key:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="MISTRAL_API_KEY not set",
+            )
+
+        cached = _read_cache(cache_p, cache_ttl_seconds)
+        if cached is not None and self.provider_id in cached:
+            return cached[self.provider_id]
+
+        status, body = _request_json(
+            _MISTRAL_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+            },
+        )
+        if status != 200:
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error=f"upstream HTTP {status}: {str(body)[:120]}",
+            )
+        if not isinstance(body, dict):
+            return QuotaInfo(
+                provider_id=self.provider_id,
+                status_label="error",
+                source="error",
+                error="payload not object",
+            )
+
+        info = _parse_mistral_payload(body)
+        if info.source == "live":
+            _write_cache(
+                cache_p,
+                {
+                    self.provider_id: {
+                        "status_label": info.status_label,
+                        "detail": info.detail,
+                        "used_pct": info.used_pct,
+                        "fetched_at": now or time.time(),
+                    },
+                },
+            )
+            return QuotaInfo(
+                provider_id=info.provider_id,
+                status_label=info.status_label,
+                detail=info.detail,
+                used_pct=info.used_pct,
+                source="live",
+                fetched_at=datetime.fromtimestamp(now or time.time(), tz=timezone.utc),
+            )
+        return info
+
+
+# ---------------------------------------------------------------------------
 # Registry — only providers with live quota APIs are listed.
-# All other 16 fcc-claude providers return ``None`` from
+# All other fcc-claude providers return ``None`` from
 # :func:`get_quota_for_provider` and the statusline omits the ``⏱`` segment.
 # ---------------------------------------------------------------------------
 
@@ -775,14 +1307,25 @@ QUOTA_PROVIDERS: dict[str, QuotaProvider] = {
     "minimax": MinimaxQuotaProvider(),
     "open_router": OpenRouterQuotaProvider(),
     "codex_chatgpt": CodexChatgptQuotaProvider(),
+    "deepseek": DeepSeekQuotaProvider(),
+    "openai_dashboard": OpenAIDashboardQuotaProvider(),
+    "mistral": MistralQuotaProvider(),
 }
 
 
 def get_quota_for_provider(provider_id: str | None) -> QuotaProvider | None:
     """Return the live quota adapter for ``provider_id``, or ``None`` if the
-    provider has no quota API wired up in this version of the statusline."""
+    provider has no quota API wired up in this version of the statusline.
+
+    Aliases:
+      * ``codestral`` → ``mistral`` (the fcc-claude ``codestral`` gateway hits
+        the same Mistral backend, so the Mistral ``/v1/usage`` endpoint
+        reports consumption for both).
+    """
     if not provider_id:
         return None
+    if provider_id == "codestral":
+        provider_id = "mistral"
     return QUOTA_PROVIDERS.get(provider_id)
 
 
