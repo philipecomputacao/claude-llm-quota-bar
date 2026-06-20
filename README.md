@@ -10,6 +10,25 @@
 ![status](https://img.shields.io/badge/status-stable-brightgreen.svg)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![providers](https://img.shields.io/badge/providers-18%2B-orange.svg)
+![claude--code](https://img.shields.io/badge/Claude%20Code-statusline-purple.svg)
+![opencode](https://img.shields.io/badge/OpenCode-plugin-blueviolet.svg)
+![models](https://img.shields.io/badge/models-402-yellow.svg)
+
+---
+
+## Highlights
+
+- 📊 **Multi-provider quota bar** — one line tells you your real-time usage on
+  [MiniMax Token Plan](https://platform.minimax.io), OpenRouter credits,
+  DeepSeek balance, Mistral usage, OpenAI credit grants, and Codex ChatGPT
+  plan. Falls back gracefully when no key is set.
+- 💰 **Cost in BRL + USD** with a cached FX rate (refreshes hourly).
+- 🧠 **Context window %** + burn-rate emoji (`🧊` / `⚡` / `🔥`) at a glance.
+- 🔌 **402 models** with auto-pricing from upstream `pricing.json`.
+- 🪟 **Two delivery channels out of the box**: Claude Code statusline (Python
+  subprocess) and OpenCode plugin (server-side toast + persistent bar TBD).
+- 🔒 **Zero secrets in repo** — keys live in your shell env or `~/.fcc/.env`
+  and are referenced by name only. See [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -70,7 +89,10 @@ first-class multi-provider quota tracking.
 - [Adding a new quota adapter](#adding-a-new-quota-adapter)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
+- [Related projects](#related-projects)
+- [Upstream divergence](#upstream-divergence)
 - [License](#license)
+- [Security](#security)
 
 ---
 
@@ -665,3 +687,13 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 This repo never contains real API keys — see [SECURITY.md](SECURITY.md)
 for the full policy and runtime cache contents.
+
+## Documentation
+
+- [README.md](README.md) — this file
+- [SECURITY.md](SECURITY.md) — secret-handling policy + audit log
+- [CONTRIBUTING.md](CONTRIBUTING.md) — bug reports, feature requests,
+  how to add a new quota adapter
+- [CHANGELOG.md](CHANGELOG.md) — release notes
+- [opencode-plugin/README.md](opencode-plugin/README.md) — OpenCode
+  plugin docs (status, install, architecture)
