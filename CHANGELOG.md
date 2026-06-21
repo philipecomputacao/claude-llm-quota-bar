@@ -32,6 +32,18 @@ versions grouped by date.
   in `lib/pricing.py:_entry_to_price` (data-layer fix), so every consumer of
   `ModelPrice.display` sees a clean label. The `pricing.json` file is
   untouched; the strip is applied at load time.
+- **Session isolation: stop falling back to the most-recent JSONL when
+  `CLAUDE_SESSION_ID` is missing.** The previous `_safe_log_path` would
+  fall back to `locate_latest_log` in the project directory — the JSONL
+  with the latest `mtime`. When two Claude Code windows shared the same
+  cwd (same `project_dir`), a tick on window B that briefly lost the
+  session id could pick up window A's JSONL if A had been touched more
+  recently, briefly rendering A's model/cost in B's statusline. The status
+  would flicker (e.g. a deepseek window briefly showing the other window's
+  `MiniMax-M3` model before snapping back on the next tick). The new
+  behaviour: when `CLAUDE_SESSION_ID` is empty, render `[sem sessão]` and
+  return early. The placeholder is rendered instead of any phantom data
+  so the user notices the gap rather than seeing misleading numbers.
 
 ### Planned
 - (no items yet)

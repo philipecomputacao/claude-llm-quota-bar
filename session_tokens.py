@@ -35,9 +35,7 @@ from lib.parser import (  # noqa: E402
     TokenTotals,
     _provider_from_model,
     _strip_gateway_prefix,
-    locate_latest_log,
     locate_session_log,
-    parse_first_response_model,
 )
 from lib.provider_quota import fetch_quota  # noqa: E402
 from lib.pricing import (  # noqa: E402
@@ -49,6 +47,7 @@ from lib.pricing import (  # noqa: E402
 
 DEFAULT_CLAUDE_DIR = Path.home() / ".claude"
 PLACEHOLDER = "[statusline: inicializando]"
+NO_SESSION_PLACEHOLDER = "[sem sessão]"
 
 
 def _load_display_options(config_path: Path) -> DisplayOptions:
@@ -79,15 +78,29 @@ def _read_stdin() -> dict[str, Any]:
 
 
 def _safe_log_path(claude_dir: Path, project_dir: str, session_id: str) -> tuple[Path | None, str | None]:
-    """Locate the JSONL path for the given session, falling back if needed."""
+    """Locate the JSONL path for the given session.
+
+    Returns ``(path, None)`` when the session id resolves to a unique JSONL
+    file. When the session id is empty/missing (e.g. a tick where the Claude
+    Code runtime failed to export ``CLAUDE_SESSION_ID``), returns
+    ``(None, None)`` and lets the caller render :data:`NO_SESSION_PLACEHOLDER`.
+
+    The previous implementation fell back to
+    :func:`locate_latest_log` — the most recently modified JSONL in the
+    project directory. That fallback was unsafe in multi-window workflows:
+    when session A and session B share a ``project_dir`` (same cwd), a tick
+    on B with no session id could pick up A's JSONL if A happened to be
+    touched more recently, briefly rendering A's model/cost in B's
+    statusline. The flicker is the bug the user reported — e.g. a deepseek
+    window briefly showing the other window's ``MiniMax-M3`` model before
+    snapping back on the next tick.
+    """
+    if not session_id:
+        return None, None
     path = locate_session_log(claude_dir, project_dir, session_id)
     if path is not None:
         return path, None
-    fallback = locate_latest_log(claude_dir, project_dir)
-    if fallback is None:
-        return None, None
-    fallback_model = parse_first_response_model(fallback)
-    return fallback, fallback_model
+    return None, None
 
 
 # Statusline parses the JSONL on every refresh. To avoid re-reading a
@@ -395,6 +408,14 @@ def main() -> int:
 
     log_path, fallback_model = _safe_log_path(claude_dir, project_dir, session_id)
     if log_path is None:
+        if not session_id:
+            # No session id — refuse to fall back to the most-recent JSONL
+            # in the project directory, because that can belong to a
+            # different Claude Code window sharing the same cwd. Render
+            # the placeholder so the user notices the gap instead of seeing
+            # a phantom model from another session.
+            print(NO_SESSION_PLACEHOLDER, flush=True)
+            return 0
         price = _price_for_model(std_model, table)
         totals = TokenTotals()
         cost = CostBreakdown(fx_to_brl=fx.rate)
