@@ -20,7 +20,7 @@ versions grouped by date.
   local proxy (like `fcc-claude`/`fcc-server`) or straight to the
   official Anthropic API. The URL is read from `ANTHROPIC_BASE_URL`:
   - **Soft green** (`DIM + GREEN`, i.e. `\x1b[2;32m`) when the host is
-    `localhost` / `127.0.0.1` / `::1` — the typical `fcc-claude` setup
+    a loopback address (the typical `fcc-claude` setup)
     AND the proxy answered the last health probe (`"ok"`). The dim
     attribute keeps the segment readable as "ambient ok" without
     competing with the bright green used elsewhere for cache hit

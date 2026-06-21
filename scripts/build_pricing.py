@@ -6,7 +6,7 @@ model the user has access to, then classifies each one into a pricing tier.
 
 Usage::
 
-    python3 scripts/build_pricing.py [--out pricing.json] [--host http://127.0.0.1:8082]
+    python3 scripts/build_pricing.py [--out pricing.json] [--host http://localhost:<port>]
 
 Auth: the script reads ``$FREE_CC_AUTH_TOKEN`` and falls back to ``"freecc"``
 (the FCC dev default — only valid when the local proxy has not been secured).
@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_HOST = "http://127.0.0.1:8082"
+DEFAULT_HOST = "http://localhost:8082"
 DEFAULT_AUTH_TOKEN = "freecc"
 
 

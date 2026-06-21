@@ -4,9 +4,9 @@ The statusline renders a 🌐 segment on the cost line that shows whether the
 active session is going through a local proxy. The env var tells us *that*
 the proxy is configured; this module tells us *whether it's actually alive*.
 
-Without this, the bar happily shows "🌐 http://127.0.0.1:8082" in green even
-when fcc-server has crashed — misleading. With this, a dead router flips to
-red so the user can tell at a glance that the proxy is down.
+Without this, the bar happily shows "🌐 http://localhost:<port>" in green
+even when fcc-server has crashed — misleading. With this, a dead router
+flips to red so the user can tell at a glance that the proxy is down.
 
 The check is intentionally cheap:
 

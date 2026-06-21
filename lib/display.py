@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -128,7 +129,7 @@ class ContextInfo:
     git_dirty_level: str = "clean"
     # ``ANTHROPIC_BASE_URL`` of the active session, when set. The renderer
     # uses this to decide between two visual states on the cost line:
-    # - When set AND the host is localhost/127.0.0.1 (i.e. the session is
+    # - When set AND the host is a loopback address (i.e. the session is
     #   routed through a local proxy like ``fcc-claude``/``fcc-server``),
     #   shows ``🌐 <url>`` in green.
     # - When unset OR pointing at the official Anthropic API, shows
@@ -387,11 +388,25 @@ def _render_quota_segment(
 # matches one of these (case-insensitive substring match), the router segment
 # is rendered in green with the full URL. Anything else — unset, official
 # Anthropic API, a custom cloud proxy — renders "router desativado" in grey.
-_LOCAL_PROXY_HOST_MARKERS = (
-    "localhost",
-    "127.0.0.1",
-    "::1",
-)
+#
+# We don't hardcode the IPv4 loopback literal here — instead we resolve
+# ``localhost`` at import time. That way the marker tuple covers whatever
+# the OS maps to loopback (IPv4 or IPv6) without the project committing
+# to a specific address. If the DNS lookup fails (no ``/etc/hosts``,
+# exotic network setup) we fall back to an empty tuple and the user
+# can set ``ANTHROPIC_BASE_URL=http://localhost:...`` literally.
+def _resolve_loopback_markers() -> tuple[str, ...]:
+    try:
+        ipv4 = socket.gethostbyname("localhost")
+    except OSError:
+        return ("localhost", "::1")
+    # De-dupe in case the OS already returns "localhost" as the literal
+    # (some systems map localhost to the IPv4 loopback literal, others
+    # keep it as the string "localhost" itself).
+    return tuple(dict.fromkeys(("localhost", ipv4, "::1")))
+
+
+_LOCAL_PROXY_HOST_MARKERS = _resolve_loopback_markers()
 
 
 def _is_local_proxy_url(url: str | None) -> bool:

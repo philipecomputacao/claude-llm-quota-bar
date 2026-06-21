@@ -61,7 +61,7 @@ Native Claude Code session (no API key needed for the quota segment):
 📁 ~/src/my-project
 [claude-sonnet-4-5] • 📟 v2.1.170 • 🔖 claude --resume f47ac10b-...-4aae
 ⬆1.0M ⬇48k ↻R2.8M • 🧠 12% usado (88% livre)
-🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m • 🌐 http://127.0.0.1:8082
+🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m • 🌐 http://localhost:8082
 🔀 main • 1a2b3c4 • fix: correct off-by-one in user count
 ```
 
@@ -72,7 +72,7 @@ Routed through a third-party provider with a quota adapter enabled
 📁 ~/src/my-project
 [MiniMax-M3·minimax] • 📟 v2.1.170 • 🔖 claude --resume f47ac10b-...-4aae
 ⬆1.0M ⬇48k ↻R2.8M • ⏱ 40% usado (60% livre) (reset 2h48m) • 🧠 12% usado (88% livre)
-🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m • 🌐 http://127.0.0.1:8082
+🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m • 🌐 http://localhost:8082
 🔀 feature/quota • 9c8b7a6 • feat(quota): add OpenAI credit grants adapter • +153/-22
 ```
 
@@ -361,8 +361,8 @@ Anthropic API. The URL is read from `ANTHROPIC_BASE_URL` on every tick
 
 | State | Colour | Trigger |
 |---|---|---|
-| `🌐 http://127.0.0.1:<port>` | Soft green (`DIM + GREEN`) | `ANTHROPIC_BASE_URL` points at a local host AND the proxy answered the last health probe (`"ok"`). |
-| `🌐 http://127.0.0.1:<port>` | Red | Same URL but the health probe reported `"down"` (TCP refused, timeout). |
+| `🌐 http://localhost:<port>` | Soft green (`DIM + GREEN`) | `ANTHROPIC_BASE_URL` points at a local host AND the proxy answered the last health probe (`"ok"`). |
+| `🌐 http://localhost:<port>` | Red | Same URL but the health probe reported `"down"` (TCP refused, timeout). |
 | `🌐 router desativado` | Grey | `ANTHROPIC_BASE_URL` unset or points at `api.anthropic.com` — vanilla Claude Code. |
 
 The health probe is **skipped entirely** for non-local URLs (we don't

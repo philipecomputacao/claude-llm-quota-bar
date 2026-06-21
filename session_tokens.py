@@ -339,7 +339,7 @@ def _detect_claude_launcher() -> str:
 
     The detection is based on the ``ANTHROPIC_BASE_URL`` env var that
     fcc-claude sets to the local ``fcc-server`` proxy URL. When the URL
-    points to localhost/127.0.0.1 we are almost certainly behind the
+    points to a loopback host we are almost certainly behind the
     fcc-claude wrapper. Anything else (unset, or pointing at the official
     Anthropic API) means a vanilla ``claude`` invocation.
 
@@ -351,7 +351,7 @@ def _detect_claude_launcher() -> str:
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "").strip().lower()
     if not base_url:
         return "claude"
-    if "localhost" in base_url or "127.0.0.1" in base_url or "::1" in base_url:
+    if _is_local_base_url(base_url):
         return "fcc-claude"
     return "claude"
 
@@ -400,12 +400,30 @@ def _router_health(router_url: str, opts: "DisplayOptions") -> str:
     # reconfigure / restart. The duplication is intentional: the renderer
     # owns the colour rule, the entry point owns the probe-or-skip rule.
     lowered = router_url.lower()
-    is_local = any(
-        marker in lowered for marker in ("localhost", "127.0.0.1", "::1")
-    )
+    is_local = _is_local_base_url(lowered)
     if not is_local:
         return "ok"
     return check_router(router_url, cache_ttl_seconds=opts.router_health_ttl_seconds)
+
+
+def _is_local_base_url(lowered_url: str) -> bool:
+    """Return ``True`` when ``lowered_url`` points at a loopback host.
+
+    Used by both :func:`_detect_claude_launcher` and
+    :func:`_router_health` to decide whether ``ANTHROPIC_BASE_URL``
+    refers to a local proxy (worth probing / worth labelling as
+    ``fcc-claude``) or to an upstream API (don't probe, label as
+    vanilla ``claude``).
+
+    The marker list comes from :func:`lib.display._resolve_loopback_markers`
+    — resolved at import time via ``socket.gethostbyname("localhost")``
+    so the project doesn't commit to a specific loopback literal.
+    Substring match (case-insensitive on the caller side) is intentional:
+    a URL like ``http://localhost:8082/v1`` or
+    ``http://[::1]:8082/v1`` should both match.
+    """
+    from lib.display import _LOCAL_PROXY_HOST_MARKERS
+    return any(marker in lowered_url for marker in _LOCAL_PROXY_HOST_MARKERS)
 
 
 def _stdin_cwd(stdin_hint: dict[str, Any], fallback: str | None) -> str | None:
