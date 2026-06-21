@@ -15,6 +15,13 @@ versions grouped by date.
   known-gateway list (`opencode_go` / `opencode` / `open_router`) is
   centralised in `lib/display.py:_GATEWAY_DISPLAY_LABELS`; upstream labels
   like `(minimax)` are kept as-is.
+- **Display: always append the upstream direct provider to the label** when
+  the parser resolves it (i.e. when `last_provider` is one of `deepseek` /
+  `mistral` / etc. — never for `anthropic` / `unknown`). The previous
+  substring-match heuristic was skipping the append whenever the model name
+  happened to contain the provider string (e.g. `deepseek-v4-pro` showed
+  without the `·deepseek` suffix), hiding the provider info. The label now
+  always carries the provider when it is known.
 - **Pricing: strip inherited `anthropic/` prefix from `ModelPrice.display`.**
   The 16 `open_router/anthropic/*` entries in `pricing.json` (e.g.
   `claude-fable-5`, `claude-opus-4.7`) had `display = "anthropic/claude-..."`

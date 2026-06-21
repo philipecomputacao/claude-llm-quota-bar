@@ -360,12 +360,13 @@ def render(
         model_label = price.display if price else (totals.last_model or "???")
         # Strip noisy gateway suffixes like "(opencode_go)" — the gateway is
         # pricing/roteamento metadata, not useful info on the statusline.
-        # The upstream direct provider is appended below if it is not already
-        # visible in the (now-cleaned) label.
+        # The upstream direct provider is appended below unconditionally
+        # when it is the direct upstream (deepseek/mistral/etc.) — even when
+        # the model name already contains the provider string (e.g.
+        # ``deepseek-v4-pro`` shows as ``deepseek-v4-pro·deepseek``).
         model_label = _strip_gateway_suffix(model_label)
         if totals.last_provider and totals.last_provider not in {"anthropic", "unknown"}:
-            if totals.last_provider.lower() not in model_label.lower():
-                model_label = f"{model_label}·{totals.last_provider}"
+            model_label = f"{model_label}·{totals.last_provider}"
         if cost.unknown_models:
             model_label = f"{model_label}?"
         parts_id.append(_colorize(f"[{model_label}]", CYAN, use_color))
