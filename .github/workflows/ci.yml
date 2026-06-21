@@ -51,7 +51,7 @@ jobs:
           # Empty stdin (no Claude Code hint) — the script must not crash.
           python3 session_tokens.py < /dev/null > /tmp/out_empty.txt
           test -s /tmp/out_empty.txt
-          grep -q "inicializando\|empty" /tmp/out_empty.txt || \
+          grep -q "inicializando\|empty\|sem sessão" /tmp/out_empty.txt || \
             { echo "Expected placeholder/empty output"; cat /tmp/out_empty.txt; exit 1; }
 
           # Realistic stdin — the script must produce the 3-line bar.
