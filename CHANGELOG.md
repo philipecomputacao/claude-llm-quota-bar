@@ -6,6 +6,17 @@ versions grouped by date.
 
 ## [Unreleased]
 
+### Fixed
+- **Cwd cache no longer poisons the bar with `$HOME`.** The on-disk
+  `cwd-cache.json` and the `lsof` discovery layer both now reject cwd
+  values that match `CWD_DENYLIST` (currently `$HOME`). This prevents the
+  `📁` line from collapsing to `📁 ~` and the `🔀` line from collapsing to
+  `🔀 [sem git]` when a previous tick recorded the launcher shell's cwd
+  instead of the Claude Code session cwd. Env values (`CLAUDE_PROJECT_DIR`)
+  bypass the denylist — the user/Claude Code told us where to look, and
+  we trust that. The denylist is a tuple in `session_tokens.py` so adding
+  more poisoned values is a one-line change.
+
 ### Added
 - **Display: 4th line with git info (`🔀 branch • <hash> <commit-title>`).**
   Always rendered. When the resolved cwd is not a git repo, the line shows

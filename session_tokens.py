@@ -79,6 +79,18 @@ CWD_TAG_ENV = "env"
 CWD_TAG_CACHE = "cache"
 CWD_TAG_LSOF = "lsof"
 CWD_TAG_NONE = "none"
+# Cwd values that the cache/lsof layers must NEVER return. The home
+# directory is the most common poisoned-cache value: when the Claude Code
+# shell session is launched from a bare `~` (or via a wrapper that drops
+# the real cwd), the lsof-based discovery picks the launcher shell's cwd
+# — usually $HOME — and the on-disk cache then keeps serving that bogus
+# value for up to an hour, blanking the `📁` and `🔀` lines.
+# Rejecting HOME from the cache/lsof layers is safe: a user who genuinely
+# runs Claude Code from $HOME gets the env var (or stdin) carrying the
+# real cwd, and we still try lsof as a last resort.
+CWD_DENYLIST: tuple[str, ...] = (
+    str(Path.home()),
+)
 
 
 def _safe_file_size(path: Path) -> int:
@@ -728,6 +740,21 @@ def _discover_cwd_via_lsof() -> str | None:
     return None
 
 
+def _is_cwd_denylisted(cwd: str | None) -> bool:
+    """Return True when ``cwd`` is in :data:`CWD_DENYLIST` (e.g. $HOME).
+
+    The cache and lsof layers both consult this — see :func:`_resolve_cwd`
+    and the cache write below. The env layer does NOT consult it: when
+    Claude Code explicitly exports ``CLAUDE_PROJECT_DIR`` (the happy
+    path), the user told us where to look, and we trust that. Denylisting
+    only applies to the *recovered* cwd values that we inferred on the
+    user's behalf.
+    """
+    if not cwd:
+        return False
+    return cwd in CWD_DENYLIST
+
+
 def _resolve_cwd(env_value: str | None, cache_path: Path) -> tuple[str | None, str]:
     """Resolve the cwd using a layered fallback.
 
@@ -735,12 +762,16 @@ def _resolve_cwd(env_value: str | None, cache_path: Path) -> tuple[str | None, s
 
     1. **Env** — return ``env_value`` when it points to an existing
        directory. Cache the result for the next tick. This is the
-       happy path; the script spends <1 ms here.
+       happy path; the script spends <1 ms here. Env values are
+       trusted as-is (the user / Claude Code told us where to look);
+       they bypass :data:`CWD_DENYLIST`.
     2. **Cache** — read the on-disk cache written by a previous tick.
-       Skipped when the cache is older than :data:`CWD_CACHE_MAX_AGE_SECONDS`
-       or points at a directory that no longer exists.
+       Skipped when the cache is older than :data:`CWD_CACHE_MAX_AGE_SECONDS`,
+       points at a directory that no longer exists, OR resolves to a
+       denylisted value (e.g. ``$HOME`` — see :data:`CWD_DENYLIST`).
     3. **lsof** — best-effort discovery of the Claude Code process cwd
-       via macOS ``lsof``. Skipped on non-Darwin platforms.
+       via macOS ``lsof``. Skipped on non-Darwin platforms. The result
+       is also checked against the denylist before being cached/returned.
     4. **None** — give up; the caller renders the
        :data:`NO_SESSION_PLACEHOLDER` with the appropriate tag.
 
@@ -753,10 +784,10 @@ def _resolve_cwd(env_value: str | None, cache_path: Path) -> tuple[str | None, s
             _write_cwd_cache(cache_path, env_value)
             return env_value, CWD_TAG_ENV
     cached = _read_cwd_cache(cache_path)
-    if cached is not None:
+    if cached is not None and not _is_cwd_denylisted(cached):
         return cached, CWD_TAG_CACHE
     discovered = _discover_cwd_via_lsof()
-    if discovered is not None:
+    if discovered is not None and not _is_cwd_denylisted(discovered):
         _write_cwd_cache(cache_path, discovered)
         return discovered, CWD_TAG_LSOF
     return None, CWD_TAG_NONE
