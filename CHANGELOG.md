@@ -56,6 +56,36 @@ versions grouped by date.
   "forgot git add" indicator).
 
 ### Fixed
+- **Resilience: wrap `main()` in `try/except Exception` with graceful fallback.**
+  Any unhandled exception in the render pipeline would previously crash the
+  subprocess silently — Claude Code swallows stderr, so the user saw a blank
+  statusline with no clue what went wrong. The new `main()` delegates to
+  `_main_impl()` inside a broad `try/except` that catches everything and prints
+  `[sem sessão] (erro: <ExceptionType>)` (dimmed) so the bar stays visible and
+  the user can report the exception type. The exit code is 1 on the error path
+  so monitoring (if any) can count failures without parsing the output.
+- **Resilience: cumulative git subprocess budget (`_GIT_BUDGET_SECONDS = 3.5 s`).**
+  Four `git` subprocesses at 1.5 s timeout each could spend up to 6 s —
+  exceeding the 5 s statusline refresh interval. A new `_run_git_budgeted`
+  wrapper tracks cumulative time via `time.monotonic()` and aborts remaining
+  calls once the budget is exhausted, leaving room for the rest of the
+  pipeline (pricing, JSONL parse, render). Cheapest calls (branch, hash,
+  title) run first; the expensive `diff --numstat` runs last and is the first
+  to be skipped when the budget is tight. On a healthy SSD repo all four calls
+  return in ~10 ms — the budget only triggers on pathological filesystems.
+- **Resilience: type-coerce `statusline.env.json` values before constructing
+  `DisplayOptions`.** A user-typed string (`"50"` instead of `50`) for an int
+  field (`git_dirty_warn_lines`) would previously pass through to the dataclass
+  and cause a `TypeError` at comparison time (`int >= str`). The new
+  `_coerce_option` helper converts strings to `bool`/`int`/`float` based on
+  the field's declared type on the dataclass. `ColorMode` strings pass through
+  unchanged. Invalid coercions (e.g. `"abc"` for an int field) keep the original
+  value, and the downstream code applies the dataclass default when the value
+  is unusable.
+- **Resilience: `_safe_file_size()` wrapper for debug-dump `stat()` call.**
+  Concurrent delete of the session JSONL between `exists()` and `stat()` (a
+  sub-microsecond window, but possible) would previously raise `OSError`
+  unhandled. Now returns 0 on any `OSError` — the debug dump carries on.
 - **Display: signal `session_id_inferred` via colour, not suffix.** The
   previous `(inferido)` text marker (commit `7025ab0`) was still
   copy-pasteable as a tail token — a user could paste the whole line

@@ -80,6 +80,18 @@ CWD_TAG_CACHE = "cache"
 CWD_TAG_LSOF = "lsof"
 CWD_TAG_NONE = "none"
 
+
+def _safe_file_size(path: Path) -> int:
+    """Return ``path.stat().st_size``, or 0 on any OSError.
+
+    Defensive wrapper — a concurrent delete between ``exists()`` and
+    ``stat()`` is possible but rare. Never raises.
+    """
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
 # Note: previous revisions had a ``LATEST_LOG_MAX_AGE_SECONDS`` constant and
 # an "ambiguous" branch that refused the fallback when the project dir
 # contained multiple JSONLs. That branch ended up rejecting the fallback
@@ -90,7 +102,12 @@ CWD_TAG_NONE = "none"
 
 
 def _load_display_options(config_path: Path) -> DisplayOptions:
-    """Load display toggles from ``statusline.env.json`` if present."""
+    """Load display toggles from ``statusline.env.json`` if present.
+
+    Values from JSON are coerced to the types declared on :class:`DisplayOptions`
+    so a user-typed string (``"50"`` instead of ``50``) does not cause a
+    ``TypeError`` at comparison time deep inside the render pipeline.
+    """
     if not config_path.exists():
         return DisplayOptions()
     try:
@@ -98,8 +115,43 @@ def _load_display_options(config_path: Path) -> DisplayOptions:
     except (OSError, json.JSONDecodeError):
         return DisplayOptions()
     allowed = {f for f in DisplayOptions.__dataclass_fields__}
-    kwargs = {k: v for k, v in raw.items() if k in allowed}
+    kwargs: dict[str, Any] = {}
+    for k, v in raw.items():
+        if k not in allowed:
+            continue
+        field_type = DisplayOptions.__dataclass_fields__[k].type
+        kwargs[k] = _coerce_option(v, field_type)
     return DisplayOptions(**kwargs)
+
+
+def _coerce_option(value: Any, target_type: Any) -> Any:
+    """Coerce a JSON value to the target type declared in :class:`DisplayOptions`.
+
+    Handles the three type families used by the options dataclass: ``bool``
+    (``"true"``/``"false"`` → ``True``/``False``), ``int``, and ``float``.
+    Strings for ``ColorMode`` and invalid values are passed through unscathed
+    so downstream code can apply the default (the dataclass field default
+    handles missing keys; this function handles wrong-type values for keys
+    that *are* present).
+    """
+    if target_type is bool:
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes")
+        return bool(value)
+    if target_type is int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    if target_type is float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return value
+    # ``ColorMode`` (Literal["auto", "always", "never"]) stays as a string;
+    # unrecognised types pass through unchanged so the dataclass default
+    # applies if the value is invalid.
+    return value
 
 
 def _read_stdin() -> dict[str, Any]:
@@ -712,6 +764,22 @@ def _resolve_cwd(env_value: str | None, cache_path: Path) -> tuple[str | None, s
 
 def main() -> int:
     started = time.perf_counter()
+    try:
+        return _main_impl(started)
+    except Exception:
+        # Any unhandled exception would blank the statusline bar entirely —
+        # Claude Code's subprocess runner swallows stderr, so the user sees
+        # nothing.  Print a graceful fallback with the exception type so the
+        # user at least knows the bar is alive and can report the error.
+        exc_name = sys.exc_info()[0].__name__ if sys.exc_info()[0] else "?"
+        print(
+            f"{NO_SESSION_PLACEHOLDER} \x1b[2m(erro: {exc_name})\x1b[0m",
+            flush=True,
+        )
+        return 1
+
+
+def _main_impl(started: float) -> int:
     claude_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", DEFAULT_CLAUDE_DIR))
     # Resolve the cwd with a layered fallback. The env var is the happy
     # path (< 1 ms); the cache + lsof layers exist so we keep working
@@ -772,7 +840,7 @@ def main() -> int:
         "env": _debug_env_summary(),
         "resolution": resolution_tag,
         "log_path": str(log_path),
-        "log_size": log_path.stat().st_size if log_path.exists() else 0,
+        "log_size": _safe_file_size(log_path),
     })
     from lib.parser import aggregate_session, parse_first_response_model
 

@@ -22,15 +22,19 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 
 # Per-call timeout for each `git` subprocess. The statusline refresh interval
-# is 5 s; three calls at 1.5 s worst-case each is 4.5 s, leaving room for the
-# rest of the pipeline. In practice, on a healthy repo the lookup completes in
-# 5-15 ms (sub-second).
+# is 5 s; four calls (branch, hash, title, numstat) at 1.5 s worst-case each
+# is 6 s. A cumulative budget (_GIT_BUDGET_SECONDS) aborts remaining calls
+# when we have already spent 3.5 s on git, leaving ~1.5 s for the rest of the
+# pipeline. In practice, on a healthy repo the lookup completes in 5-15 ms
+# (sub-second).
 _GIT_TIMEOUT_SECONDS = 1.5
+_GIT_BUDGET_SECONDS = 3.5
 
 # Title truncation. The statusline has a 1-line budget for the git segment;
 # long commit subjects get cut off with an ellipsis so the rest of the bar
@@ -118,6 +122,19 @@ def _parse_numstat(raw: str | None) -> tuple[int, int]:
     return added, deleted
 
 
+def _run_git_budgeted(
+    cwd: Path, args: list[str], budget_start: float
+) -> str | None:
+    """Run ``git -C <cwd> <args>...`` with a cumulative timeout budget.
+
+    Returns ``None`` when the global git budget is already exhausted — this
+    avoids pile-up across refresh ticks when the repo is on a slow filesystem.
+    """
+    if time.monotonic() - budget_start > _GIT_BUDGET_SECONDS:
+        return None
+    return _run_git(cwd, args)
+
+
 def resolve_git(cwd: str | None) -> GitInfo:
     """Return the git metadata for ``cwd``, or a fully-empty ``GitInfo``.
 
@@ -125,9 +142,10 @@ def resolve_git(cwd: str | None) -> GitInfo:
     exist, returns ``GitInfo()`` immediately (no subprocesses spawned).
     Cost: one ``Path.exists()`` syscall, ~5 ms on macOS.
 
-    Otherwise spawns up to three ``git`` subprocesses (one per field). A
-    failure in one does not abort the others — the returned ``GitInfo``
-    simply has ``None`` in the failed slot.
+    Otherwise spawns up to four ``git`` subprocesses (one per field) bounded
+    by a cumulative budget. A failure or budget exhaustion in one does not
+    abort the others — the returned ``GitInfo`` simply has ``None`` in the
+    failed slot.
     """
     if not cwd:
         return GitInfo()
@@ -138,15 +156,36 @@ def resolve_git(cwd: str | None) -> GitInfo:
     # understands the indirection.
     if not (cwd_path / ".git").exists():
         return GitInfo()
+
+    # Cumulative budget so the statusline never spends >3.5 s on git (out of
+    # the 5 s refresh window). On a healthy SSD repo all four calls return in
+    # ~10 ms — the budget only triggers on pathological filesystems.
+    budget_start = time.monotonic()
+
+    # Run the cheapest calls first (branch, commit hash, title) so the
+    # expensive ``diff --numstat`` is the one that gets skipped when the
+    # budget is tight.
+    branch = _run_git_budgeted(
+        cwd_path, ["rev-parse", "--abbrev-ref", "HEAD"], budget_start
+    )
+    commit_short = _run_git_budgeted(
+        cwd_path, ["rev-parse", "--short=7", "HEAD"], budget_start
+    )
+    commit_title = _truncate_title(
+        _run_git_budgeted(cwd_path, ["log", "-1", "--pretty=%s"], budget_start)
+    )
+    # ``diff --numstat`` is the most expensive call (can be 100+ ms on large
+    # repos) — run it last, after the cheaper calls have populated
+    # branch/commit/title.
     added, deleted = _parse_numstat(
-        _run_git(cwd_path, ["diff", "HEAD", "--numstat"])
+        _run_git_budgeted(
+            cwd_path, ["diff", "HEAD", "--numstat"], budget_start
+        )
     )
     return GitInfo(
-        branch=_run_git(cwd_path, ["rev-parse", "--abbrev-ref", "HEAD"]),
-        commit_short=_run_git(cwd_path, ["rev-parse", "--short=7", "HEAD"]),
-        commit_title=_truncate_title(
-            _run_git(cwd_path, ["log", "-1", "--pretty=%s"])
-        ),
+        branch=branch,
+        commit_short=commit_short,
+        commit_title=commit_title,
         dirty_added=added,
         dirty_deleted=deleted,
     )
