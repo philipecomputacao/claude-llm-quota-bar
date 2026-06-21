@@ -43,6 +43,17 @@ versions grouped by date.
   is centralised in `session_tokens.py:_detect_claude_launcher`; the new
   `ContextInfo.claude_launcher` field defaults to `"claude"`, so existing
   callers are unaffected.
+- **Display: 🔀 git line reflects working-tree dirtyness via colour.** The
+  branch segment changes colour based on the size of `git diff HEAD`:
+  cyan when clean (0 lines), yellow when 50-299 lines changed, red when
+  300+ lines changed. Thresholds configurable via `statusline.env.json`
+  (`git_dirty_warn_lines`, `git_dirty_alert_lines`, defaults 50/300). A
+  `+N/-M` suffix is appended only when the working tree is dirty — clean
+  trees stay quiet. Adds one extra `git diff HEAD --numstat` subprocess
+  per tick (~10-30 ms in small repos). Uses `git diff HEAD` (not `git diff`
+  or `git diff --cached`) so the count covers staged + unstaged against
+  HEAD. Untracked files are not counted (out of scope; could be a separate
+  "forgot git add" indicator).
 
 ### Fixed
 - **Display: signal `session_id_inferred` via colour, not suffix.** The

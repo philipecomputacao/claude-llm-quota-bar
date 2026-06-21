@@ -300,6 +300,9 @@ def _build_context_info(
     git_branch: str | None = None,
     git_commit_short: str | None = None,
     git_commit_title: str | None = None,
+    git_dirty_added: int = 0,
+    git_dirty_deleted: int = 0,
+    git_dirty_level: str = "clean",
 ) -> ContextInfo:
     """Build :class:`ContextInfo` from Claude Code's stdin payload.
 
@@ -352,6 +355,9 @@ def _build_context_info(
         git_branch=git_branch,
         git_commit_short=git_commit_short,
         git_commit_title=git_commit_title,
+        git_dirty_lines_added=git_dirty_added,
+        git_dirty_lines_deleted=git_dirty_deleted,
+        git_dirty_level=git_dirty_level,
     )
 
 
@@ -782,6 +788,17 @@ def main() -> int:
     # blocks the statusline on a hung git invocation.
     git_info = resolve_git(project_dir or None)
 
+    # Classify working-tree dirtyness so the render layer can pick the
+    # right colour. Thresholds come from DisplayOptions (defaults 50/300,
+    # overridable via statusline.env.json).
+    dirty_total = git_info.dirty_added + git_info.dirty_deleted
+    if dirty_total >= opts.git_dirty_alert_lines:
+        git_dirty_level = "alert"
+    elif dirty_total >= opts.git_dirty_warn_lines:
+        git_dirty_level = "warn"
+    else:
+        git_dirty_level = "clean"
+
     context = _build_context_info(
         stdin_hint,
         project_dir,
@@ -791,6 +808,9 @@ def main() -> int:
         git_branch=git_info.branch,
         git_commit_short=git_info.commit_short,
         git_commit_title=git_info.commit_title,
+        git_dirty_added=git_info.dirty_added,
+        git_dirty_deleted=git_info.dirty_deleted,
+        git_dirty_level=git_dirty_level,
     )
     quota = None
     quota_provider_id = _active_quota_provider(

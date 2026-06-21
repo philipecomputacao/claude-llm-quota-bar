@@ -50,6 +50,12 @@ class DisplayOptions:
     show_provider_quota: bool = True
     quota_warn_pct: float = 60.0
     quota_alert_pct: float = 85.0
+    # Git working-tree dirtyness thresholds (lines added+deleted vs HEAD).
+    # Below ``git_dirty_warn_lines`` → cyan (clean). Between → yellow (warn).
+    # At or above ``git_dirty_alert_lines`` → red (alert).
+    # Override in statusline.env.json if defaults don't fit your workflow.
+    git_dirty_warn_lines: int = 50
+    git_dirty_alert_lines: int = 300
     verbose: bool = False
     color: ColorMode = "auto"
     cost_warn_brl: float = 0.50
@@ -92,6 +98,12 @@ class ContextInfo:
     git_branch: str | None = None
     git_commit_short: str | None = None
     git_commit_title: str | None = None
+    # Working-tree dirtyness: how many lines are pending commit (vs HEAD).
+    git_dirty_lines_added: int = 0
+    git_dirty_lines_deleted: int = 0
+    # "clean" / "warn" / "alert" — chosen in ``session_tokens.py:main()``
+    # from ``git_dirty_warn_lines`` / ``git_dirty_alert_lines`` thresholds.
+    git_dirty_level: str = "clean"
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -495,12 +507,17 @@ def render(
             color = RED if used >= 90 else YELLOW if used >= 70 else GRAY
             parts_uso.append(_colorize(label, color, use_color))
         if context.git_branch is not None:
-            # Real git repo on the resolved cwd. Render the branch (cyan,
-            # the high-attention segment) followed by the short hash and
-            # the commit subject in dim/grey — those are reference info
-            # and should not compete with the model/quota lines.
+            # Pick the branch colour by working-tree dirtyness so the user
+            # sees at a glance whether there are uncommitted changes. The
+            # hash and title stay grey/dim — the dirtyness signal is on the
+            # branch segment (the visual anchor of this line).
+            base_color = {
+                "clean": CYAN,
+                "warn": YELLOW,
+                "alert": RED,
+            }.get(context.git_dirty_level, CYAN)
             git_segments = [
-                _colorize(f"{EMOJI_GIT} {context.git_branch}", CYAN, use_color)
+                _colorize(f"{EMOJI_GIT} {context.git_branch}", base_color, use_color)
             ]
             if context.git_commit_short:
                 git_segments.append(
@@ -510,6 +527,11 @@ def render(
                 git_segments.append(
                     _colorize(context.git_commit_title, DIM, use_color)
                 )
+            # Append a dirtyness suffix only when the working tree has
+            # uncommitted changes — clean trees stay quiet (no ``+0/-0``).
+            if context.git_dirty_level != "clean":
+                suffix = f"+{context.git_dirty_lines_added}/-{context.git_dirty_lines_deleted}"
+                git_segments.append(_colorize(suffix, base_color, use_color))
             parts_git.append(" • ".join(git_segments))
         else:
             # No repo (or git unavailable). Always show the 4th line so the

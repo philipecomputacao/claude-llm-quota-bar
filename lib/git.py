@@ -20,6 +20,7 @@ Stdlib only — no third-party deps, consistent with the rest of the project
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,8 @@ class GitInfo:
     branch: str | None = None
     commit_short: str | None = None
     commit_title: str | None = None
+    dirty_added: int = 0        # lines added in working tree vs HEAD
+    dirty_deleted: int = 0      # lines deleted in working tree vs HEAD
 
 
 def _run_git(cwd: Path, args: list[str]) -> str | None:
@@ -84,6 +87,37 @@ def _truncate_title(title: str | None) -> str | None:
     return title[: _GIT_TITLE_MAX_LEN - 1].rstrip() + "…"
 
 
+# Regex for parsing ``git diff HEAD --numstat`` output. Each line is formatted as:
+# ``<added>\t<deleted>\t<path>`` where added/deleted are integers, or ``-`` for
+# binary files (treated as 0 by the parser).
+_NUMSTAT_LINE_RE = re.compile(r"^(\d+|-)\t(\d+|-)\t")
+
+
+def _parse_numstat(raw: str | None) -> tuple[int, int]:
+    """Parse ``git diff HEAD --numstat`` output into ``(added, deleted)``.
+
+    Binary files return ``-`` in the numeric columns — those are treated as 0.
+    Empty lines, malformed lines, and non-integer values are silently skipped.
+    A ``None`` input or total failure returns ``(0, 0)`` so the statusline
+    always shows a clean working tree on the error path (safe default).
+    """
+    if not raw:
+        return 0, 0
+    added = deleted = 0
+    for line in raw.splitlines():
+        match = _NUMSTAT_LINE_RE.match(line)
+        if not match:
+            continue
+        try:
+            if match.group(1) != "-":
+                added += int(match.group(1))
+            if match.group(2) != "-":
+                deleted += int(match.group(2))
+        except ValueError:
+            continue
+    return added, deleted
+
+
 def resolve_git(cwd: str | None) -> GitInfo:
     """Return the git metadata for ``cwd``, or a fully-empty ``GitInfo``.
 
@@ -104,10 +138,15 @@ def resolve_git(cwd: str | None) -> GitInfo:
     # understands the indirection.
     if not (cwd_path / ".git").exists():
         return GitInfo()
+    added, deleted = _parse_numstat(
+        _run_git(cwd_path, ["diff", "HEAD", "--numstat"])
+    )
     return GitInfo(
         branch=_run_git(cwd_path, ["rev-parse", "--abbrev-ref", "HEAD"]),
         commit_short=_run_git(cwd_path, ["rev-parse", "--short=7", "HEAD"]),
         commit_title=_truncate_title(
             _run_git(cwd_path, ["log", "-1", "--pretty=%s"])
         ),
+        dirty_added=added,
+        dirty_deleted=deleted,
     )
