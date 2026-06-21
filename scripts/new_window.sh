@@ -4,6 +4,20 @@
 # Usage:
 #   ./scripts/new_window.sh <session_id> [cwd]
 #
+# Environment variables (override defaults):
+#   CLAUDE_CMD    Which Claude launcher to invoke. Default: "claude".
+#                 Set to "fcc-claude" if you use the free-claude-code wrapper.
+#   TERMINAL_APP  Which macOS terminal to drive. Default: "Terminal".
+#                 Set to "iTerm" if you use iTerm2.
+#
+# Examples:
+#   ./scripts/new_window.sh fa26c77b-3790-412c-9c59-7e267c257b9f
+#       # opens Terminal.app in $HOME, runs `claude --resume <id>`
+#
+#   CLAUDE_CMD=fcc-claude \
+#   ./scripts/new_window.sh fa26c77b-...  ~/Projetos/projetos/claude-llm-quota-bar
+#       # opens Terminal.app in the project dir, runs `fcc-claude --resume <id>`
+#
 # Arguments:
 #   <session_id>  The Claude Code session UUID (36 chars) to resume. Copy it
 #                 from the statusline (the line starting with the bookmark
@@ -46,11 +60,16 @@
 # Variables in the config block:
 #   TERMINAL_APP  Which macOS terminal to drive. Default: "Terminal".
 #                  Swap to "iTerm" if you use iTerm2.
+#   CLAUDE_CMD    Which Claude Code launcher to invoke. Default: "claude".
+#                  Set to "fcc-claude" if you use the free-claude-code wrapper
+#                  (the one installed at ~/.local/bin/fcc-claude). Both
+#                  accept the same --resume <id> flag.
 
 set -euo pipefail
 
 # --- Configuration ---
 TERMINAL_APP="${TERMINAL_APP:-Terminal}"
+CLAUDE_CMD="${CLAUDE_CMD:-claude}"
 
 # --- Input validation ---
 if [[ $# -lt 1 || $# -gt 2 ]]; then
@@ -81,10 +100,11 @@ fi
 # string. The `quoted form of` construct handles quoting/spaces correctly.
 ESCAPED_CWD=$(printf '%s' "$TARGET_CWD" | sed "s/'/'\\\\''/g")
 ESCAPED_ID=$(printf '%s' "$SESSION_ID" | sed "s/'/'\\\\''/g")
+ESCAPED_CMD=$(printf '%s' "$CLAUDE_CMD" | sed "s/'/'\\\\''/g")
 
 osascript <<EOF
 tell application "$TERMINAL_APP"
   activate
-  do script "cd '$ESCAPED_CWD' && claude --resume '$ESCAPED_ID'"
+  do script "cd '$ESCAPED_CWD' && $ESCAPED_CMD --resume '$ESCAPED_ID'"
 end tell
 EOF
