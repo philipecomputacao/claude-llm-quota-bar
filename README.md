@@ -125,6 +125,7 @@ with first-class multi-provider quota tracking. See
 ## Table of contents
 
 - [Quick start](#quick-start)
+  - [0. Install with an AI assistant](#0-install-with-an-ai-assistant-recommended-if-youre-not-technical)
 - [Providers supported](#providers-supported)
 - [Quota adapters](#quota-adapters)
 - [Colour rules](#colour-rules)
@@ -143,6 +144,158 @@ with first-class multi-provider quota tracking. See
 ---
 
 ## Quick start
+
+### 0. Install with an AI assistant (recommended if you're not technical)
+
+Copy the prompt below and paste it into any AI chat (ChatGPT, Claude,
+Gemini, etc.). The assistant will install the bar end-to-end on your
+machine — no programming knowledge required on your side.
+
+<details>
+<summary><strong>Click to reveal the install prompt — copy everything inside the box</strong></summary>
+
+```plaintext
+You are helping me install "claude-llm-quota-bar", a small Python 3
+statusline script for Claude Code (the Anthropic CLI for AI-assisted
+coding). It renders a colour-coded bar in the Claude Code TUI showing
+the active model, token usage, cost, burn rate, and (optionally) live
+quota for the routed provider.
+
+Your job: install it on my machine end-to-end and verify it works.
+Do not ask me coding questions — make sensible decisions and tell me
+what you did. If you hit a step that needs my input (e.g. choosing
+between macOS Terminal and iTerm), ask exactly one focused question
+and continue.
+
+=========================================================
+STEP 1 — Detect my environment
+=========================================================
+Run these commands and remember the output:
+
+  uname -a                          # OS family (Darwin / Linux / Windows-bash)
+  python3 --version                 # need 3.10+
+  git --version                     # need any modern git
+  command -v claude                 # is Claude Code already installed?
+  command -v fcc-claude             # is the free-claude-code wrapper installed?
+  echo "BASE_URL=${ANTHROPIC_BASE_URL:-<unset>}"   # is a local proxy already configured?
+
+If python3 is missing, tell me to install it from https://python.org
+(macOS / Windows) or `sudo apt install python3` (Debian/Ubuntu) and
+stop. If git is missing, tell me to install it and stop.
+
+=========================================================
+STEP 2 — Install the script
+=========================================================
+Run ONE of these (pick the first one that matches my environment):
+
+  # macOS / Linux (most common — uses git clone)
+  git clone https://github.com/philipecomputacao/claude-llm-quota-bar.git \
+      ~/src/claude-llm-quota-bar
+  mkdir -p ~/.claude/statusline
+  ln -sf ~/src/claude-llm-quota-bar/session_tokens.py \
+         ~/.claude/statusline/session_tokens.py
+
+  # Windows (Git Bash / WSL — same commands, but use $HOME instead of ~)
+  git clone https://github.com/philipecomputacao/claude-llm-quota-bar.git \
+      "$HOME/src/claude-llm-quota-bar"
+  mkdir -p "$HOME/.claude/statusline"
+  ln -sf "$HOME/src/claude-llm-quota-bar/session_tokens.py" \
+         "$HOME/.claude/statusline/session_tokens.py"
+
+  # If git clone fails (no git, no internet, corporate firewall), fall
+  # back to direct download — single file, no git history:
+  curl -fsSL https://raw.githubusercontent.com/philipecomputacao/claude-llm-quota-bar/main/session_tokens.py \
+      -o ~/.claude/statusline/session_tokens.py
+  chmod +x ~/.claude/statusline/session_tokens.py
+
+After install, run this and verify it exits 0 with empty stdout:
+
+  python3 ~/.claude/statusline/session_tokens.py < /dev/null
+
+If it errors with "No module named 'X'", that's impossible — the
+script uses Python stdlib only. If it errors with "Permission denied",
+re-run with `chmod +x` and try again. Otherwise paste me the error.
+
+=========================================================
+STEP 3 — Wire it into Claude Code
+=========================================================
+Open the file ~/.claude/settings.json (create it if it doesn't exist)
+and add (or merge into the existing JSON):
+
+  {
+    "statusLine": {
+      "type": "command",
+      "command": "python3 ~/.claude/statusline/session_tokens.py",
+      "refreshInterval": 10000
+    }
+  }
+
+If settings.json already has a `statusLine` key, REPLACE it (don't
+duplicate). If the file has other settings (mcpServers, permissions,
+etc.), preserve them — only touch the statusLine block.
+
+If the path to python3 is `~/.local/share/uv/tools/.../bin/python3`
+(use `which python3` to check), use that exact path instead of the
+bare `python3` — some Claude Code installs don't put python on PATH.
+
+=========================================================
+STEP 4 — Verify it works
+=========================================================
+Restart Claude Code (close and reopen the TUI). Type any short
+prompt. The statusline at the bottom of the TUI should now show
+multiple lines including the model name, token counts, and a cost
+in R$ and $.
+
+If the statusline is empty or still shows Claude Code's built-in
+one-liner, the most common cause is that settings.json has bad
+JSON. Run `python3 -m json.tool < ~/.claude/settings.json` and
+fix any syntax error it reports.
+
+=========================================================
+STEP 5 — Optional: enable live quota (skip if you don't know what this is)
+=========================================================
+The bar has a "⏱" segment that shows live quota for some providers.
+It only appears if you route Claude Code through a third-party
+gateway AND set that gateway's API key. Skip this step if you
+use Claude Code directly (no gateway) — Anthropic doesn't expose
+a per-account quota API.
+
+If you DO use a gateway, ask me which one and add the matching env
+var to my shell rc (~/.zshrc, ~/.bashrc, or ~/.profile):
+
+  export MINIMAX_API_KEY=...        # for MiniMax Token Plan
+  export OPENROUTER_API_KEY=...     # for OpenRouter credits
+  export DEEPSEEK_API_KEY=...       # for DeepSeek balance
+  export MISTRAL_API_KEY=...        # for Mistral usage
+  export OPENAI_API_KEY=...         # for OpenAI admin credit grants
+
+I will paste my actual key — never invent one. After I paste it,
+restart Claude Code and verify the ⏱ segment appears.
+
+=========================================================
+STEP 6 — Optional: enable the 🌐 router segment
+=========================================================
+If I use the fcc-claude wrapper (you confirmed this in STEP 1), the
+statusline will automatically show 🌐 http://localhost:<port> in soft
+green. If the fcc-server proxy crashes, it flips to red — a quick
+visual cue that something is wrong. No action needed; this works out
+of the box.
+
+=========================================================
+DONE — Tell me what you did
+=========================================================
+Summarise in 3-5 bullet points:
+- which install method you used
+- the exact path to session_tokens.py on my machine
+- the contents of my settings.json statusLine block
+- whether STEP 4 verification passed
+- any caveats or things I should know
+
+If anything failed, give me the exact error message and the command
+that produced it. Don't try to fix it silently — surface it.
+```
+
+</details>
 
 ### 1. Install
 
