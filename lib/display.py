@@ -91,12 +91,48 @@ BURN_EMOJI_HIGH = "\U0001F525"  # 🔥 heavy / hot
 FLAG_BR = "\U0001F1E7\U0001F1F7"  # Brazil
 FLAG_US = "\U0001F1FA\U0001F1F8"  # United States
 
+# Gateway labels stripped from the model display in the statusline.
+# They are pricing/roteamento metadata (see pricing.json) and add visual
+# noise on the statusline. The upstream direct provider is what matters
+# to the user, not the gateway through which the request was routed.
+_GATEWAY_DISPLAY_LABELS: frozenset[str] = frozenset({
+    "opencode_go",
+    "opencode",
+    "open_router",
+})
+
+# Trailing ``(label)`` at the end of a pricing display string.
+_TRAILING_PARENS_RE = re.compile(r"\s*\(([^()]+)\)\s*$")
+
 _VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?$")
 
 
 def _looks_like_version(s: str) -> bool:
     """Return True if *s* looks like a semver-ish version (e.g. ``2.1.170``)."""
     return bool(_VERSION_RE.match(s))
+
+
+def _strip_gateway_suffix(display: str) -> str:
+    """Remove a trailing ``(gateway)`` from a pricing display string.
+
+    Strips a single trailing parenthesised label **only** when the label is a
+    known gateway (``opencode_go`` / ``opencode`` / ``open_router``). Other
+    suffixes — including upstream providers like ``(minimax)`` — are kept
+    intact, so the caller can still detect them and avoid duplicating the
+    provider when concatenating.
+
+    Returns the display unchanged when it has no trailing parenthesised label
+    or the label is not a known gateway.
+    """
+    if not display:
+        return display
+    match = _TRAILING_PARENS_RE.search(display)
+    if not match:
+        return display
+    label = match.group(1).strip().lower()
+    if label in _GATEWAY_DISPLAY_LABELS:
+        return display[: match.start()].rstrip()
+    return display
 
 
 def _use_color(mode: ColorMode) -> bool:
@@ -322,6 +358,11 @@ def render(
 
     if opts.show_model:
         model_label = price.display if price else (totals.last_model or "???")
+        # Strip noisy gateway suffixes like "(opencode_go)" — the gateway is
+        # pricing/roteamento metadata, not useful info on the statusline.
+        # The upstream direct provider is appended below if it is not already
+        # visible in the (now-cleaned) label.
+        model_label = _strip_gateway_suffix(model_label)
         if totals.last_provider and totals.last_provider not in {"anthropic", "unknown"}:
             if totals.last_provider.lower() not in model_label.lower():
                 model_label = f"{model_label}·{totals.last_provider}"

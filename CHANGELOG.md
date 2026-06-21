@@ -6,6 +6,16 @@ versions grouped by date.
 
 ## [Unreleased]
 
+### Fixed
+- **Display: strip gateway suffixes from the model label.** The statusline
+  no longer renders the pricing/roteamento metadata in parentheses —
+  e.g. `deepseek-v4-pro (opencode_go)` now shows as `deepseek-v4-pro·deepseek`
+  (upstream direct provider appended instead). The `pricing.json` `display`
+  field is untouched — only the rendered statusline is cleaned up. The
+  known-gateway list (`opencode_go` / `opencode` / `open_router`) is
+  centralised in `lib/display.py:_GATEWAY_DISPLAY_LABELS`; upstream labels
+  like `(minimax)` are kept as-is.
+
 ### Planned
 - (no items yet)
 
