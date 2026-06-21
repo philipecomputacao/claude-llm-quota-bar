@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -60,6 +61,23 @@ NO_SESSION_PLACEHOLDER = "[sem sessão]"
 DEBUG_ENV = "CLAUDE_LLM_QUOTA_BAR_DEBUG"
 DEBUG_CACHE_FILENAME = "debug.json"
 DEBUG_MAX_BYTES = 64 * 1024  # rotate if larger than this
+
+# Cache of the last ``CLAUDE_PROJECT_DIR`` we successfully resolved. Each
+# statusline invocation is a brand-new process (Claude Code re-spawns the
+# command on every refresh tick), so an in-memory cache is useless across
+# ticks. We persist the cwd to disk so the NEXT tick can pick it up when
+# Claude Code forgets to export ``CLAUDE_PROJECT_DIR`` — a known flaky
+# behaviour that used to leave the user stuck on the ``[sem sessão]``
+# placeholder. 1 hour TTL is generous: Claude Code usually drops the env
+# var for seconds at a time, never hours.
+CWD_CACHE_FILENAME = "cwd-cache.json"
+CWD_CACHE_MAX_AGE_SECONDS = 3600  # 1 hour
+# Tag surfaced in the debug dump / inline placeholder so the user can tell
+# which layer resolved the cwd (env, cache, lsof, or none).
+CWD_TAG_ENV = "env"
+CWD_TAG_CACHE = "cache"
+CWD_TAG_LSOF = "lsof"
+CWD_TAG_NONE = "none"
 
 # Note: previous revisions had a ``LATEST_LOG_MAX_AGE_SECONDS`` constant and
 # an "ambiguous" branch that refused the fallback when the project dir
@@ -512,10 +530,174 @@ def _price_for_model(
     return table.get("__fallback__")
 
 
+def _cwd_cache_path() -> Path:
+    """Return the absolute path of the on-disk cwd cache file."""
+    return Path.home() / ".cache" / "claude-llm-quota-bar" / CWD_CACHE_FILENAME
+
+
+def _read_cwd_cache(path: Path) -> str | None:
+    """Read the cached cwd if it exists and is younger than the TTL.
+
+    Returns ``None`` on any failure (missing file, parse error, stale age)
+    so the caller can fall through to the next layer. We never raise — the
+    cache is best-effort.
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    cwd = raw.get("cwd")
+    ts = raw.get("ts")
+    if not isinstance(cwd, str) or not cwd:
+        return None
+    if not isinstance(ts, (int, float)):
+        return None
+    try:
+        age = time.time() - float(ts)
+    except (TypeError, ValueError):
+        return None
+    if age < 0 or age > CWD_CACHE_MAX_AGE_SECONDS:
+        return None
+    if not Path(cwd).is_dir():
+        return None  # the directory disappeared; cache is useless
+    return cwd
+
+
+def _write_cwd_cache(path: Path, cwd: str) -> None:
+    """Persist the resolved cwd so the next tick can use it as fallback.
+
+    Atomic write: dump to ``<path>.tmp`` then ``os.replace`` over the
+    target so a partial write (process killed mid-flush) cannot leave a
+    corrupt JSON file. Failures are swallowed — the cache is best-effort
+    and should never break the statusline render.
+    """
+    payload = {"cwd": cwd, "ts": time.time()}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        # Best-effort: a failed cache write is not fatal.
+        return
+
+
+def _discover_cwd_via_lsof() -> str | None:
+    """Discover the cwd of the Claude Code process via ``lsof`` (macOS).
+
+    The Claude Code TUI re-spawns the statusline command on every refresh
+    tick, so the script's parent PID is the shell that launched Claude
+    Code (Terminal.app, iTerm2, etc.), not Claude Code itself. Walking
+    further up the process tree via ``ps`` is unreliable across launchers
+    (Terminal.app spawns login → zsh → claude via a long chain), so we
+    use ``lsof`` to find the process that actually opened the
+    ``settings.json`` file we know Claude Code reads. If that file is
+    currently open by some Claude Code process, we ask lsof for its cwd.
+
+    This is macOS-only (``lsof -p <pid> -d cwd -F n``). On other
+    platforms we return ``None`` and the caller falls through to the
+    placeholder.
+    """
+    settings_path = Path.home() / ".claude" / "settings.json"
+    if not settings_path.exists():
+        return None
+    try:
+        # Find which process has the file open. ``-t`` prints only PIDs.
+        # We use ``-F p`` (machine-readable) to be safe against pathological
+        # PIDs in weird locales, but ``-t`` is shorter and works on stock
+        # macOS — both paths are validated by the try/except below.
+        result = subprocess.run(
+            ["lsof", "-t", str(settings_path)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        pid_str = line.strip()
+        if not pid_str:
+            continue
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        # Now ask lsof for that process's cwd.
+        try:
+            cwd_result = subprocess.run(
+                ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-F", "n"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if cwd_result.returncode != 0:
+            continue
+        # Output looks like: ``p<PID>\nc/<path>\n``; we want the ``c/`` line.
+        for entry in cwd_result.stdout.splitlines():
+            if entry.startswith("c/"):
+                path = entry[2:].strip()
+                if path and Path(path).is_dir():
+                    return path
+    return None
+
+
+def _resolve_cwd(env_value: str | None, cache_path: Path) -> tuple[str | None, str]:
+    """Resolve the cwd using a layered fallback.
+
+    Resolution order:
+
+    1. **Env** — return ``env_value`` when it points to an existing
+       directory. Cache the result for the next tick. This is the
+       happy path; the script spends <1 ms here.
+    2. **Cache** — read the on-disk cache written by a previous tick.
+       Skipped when the cache is older than :data:`CWD_CACHE_MAX_AGE_SECONDS`
+       or points at a directory that no longer exists.
+    3. **lsof** — best-effort discovery of the Claude Code process cwd
+       via macOS ``lsof``. Skipped on non-Darwin platforms.
+    4. **None** — give up; the caller renders the
+       :data:`NO_SESSION_PLACEHOLDER` with the appropriate tag.
+
+    Returns ``(cwd_or_None, tag)`` so the caller can surface which
+    layer ended up answering the question (handy for diagnostics and
+    the inline placeholder).
+    """
+    if env_value:
+        if Path(env_value).is_dir():
+            _write_cwd_cache(cache_path, env_value)
+            return env_value, CWD_TAG_ENV
+    cached = _read_cwd_cache(cache_path)
+    if cached is not None:
+        return cached, CWD_TAG_CACHE
+    discovered = _discover_cwd_via_lsof()
+    if discovered is not None:
+        _write_cwd_cache(cache_path, discovered)
+        return discovered, CWD_TAG_LSOF
+    return None, CWD_TAG_NONE
+
+
 def main() -> int:
     started = time.perf_counter()
     claude_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", DEFAULT_CLAUDE_DIR))
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    # Resolve the cwd with a layered fallback. The env var is the happy
+    # path (< 1 ms); the cache + lsof layers exist so we keep working
+    # when Claude Code forgets to export ``CLAUDE_PROJECT_DIR`` (a known
+    # flaky behaviour — see CHANGELOG for the regression that motivated
+    # this). ``project_dir`` ends up the resolved cwd or ``""`` when every
+    # layer gives up; the downstream ``_safe_log_path`` already handles
+    # the empty case by returning ``no_jsonls``.
+    project_dir, cwd_tag = _resolve_cwd(
+        os.environ.get("CLAUDE_PROJECT_DIR", ""),
+        _cwd_cache_path(),
+    )
+    project_dir = project_dir or ""
     session_id = os.environ.get("CLAUDE_SESSION_ID", "")
 
     pricing_path = THIS_DIR / "pricing.json"

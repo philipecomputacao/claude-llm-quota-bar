@@ -36,6 +36,28 @@ versions grouped by date.
   callers are unaffected.
 
 ### Fixed
+- **Session: layered fallback for `CLAUDE_PROJECT_DIR` resolution.** Claude
+  Code occasionally drops the `CLAUDE_PROJECT_DIR` env var on some
+  refresh ticks — the symptom was a blank statusline slot or a stuck
+  `[sem sessão]` placeholder even when the user had a live session. The
+  new `_resolve_cwd` helper applies three layers in order:
+
+  1. **Env** — happy path: use the env var when set, and write it to a
+     file cache for the next tick.
+  2. **Cache** — read `~/.cache/claude-llm-quota-bar/cwd-cache.json`
+     (TTL 1h, atomic write via `os.replace`). This covers the typical
+     case where Claude Code drops the env var for a few ticks but the
+     cwd has not changed.
+  3. **lsof** — best-effort: locate the Claude Code process that has
+     `~/.claude/settings.json` open, ask lsof for its cwd. macOS-only.
+  4. **None** — placeholder with the resolution tag.
+
+  The `_safe_log_path` and `_build_context_info` consumers are
+  unchanged — `project_dir` still arrives as a string, just resolved
+  through more layers when the env var is missing. The cwd tag is
+  captured in the debug dump for post-mortem inspection. Happy-path
+  ticks still run in ~90 ms; the cache and lsof layers only activate
+  on the failure path.
 - **Display: strip gateway suffixes from the model label.** The statusline
   no longer renders the pricing/roteamento metadata in parentheses —
   e.g. `deepseek-v4-pro (opencode_go)` now shows as `deepseek-v4-pro·deepseek`
