@@ -79,6 +79,12 @@ class ContextInfo:
     # most-recent JSONL in the project dir). When True, the statusline adds a
     # ``~`` suffix to flag the imprecision.
     session_id_inferred: bool = False
+    # Which Claude launcher is hosting the active session. Used to render
+    # the right command prefix on the bookmark line — ``"claude"`` (the
+    # default) renders ``claude --resume <id>``; ``"fcc-claude"`` renders
+    # ``fcc-claude --resume <id>`` so copy-paste works without manual
+    # editing when the user is on the free-claude-code wrapper.
+    claude_launcher: str = "claude"
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -460,13 +466,16 @@ def render(
                 _colorize(f"{EMOJI_CC} v{context.cc_version}", DIM, use_color)
             )
         if context.session_id:
-            # Render the ready-to-run ``claude --resume <id>`` command so the
-            # user can copy/paste it into another window. The ``~`` suffix
-            # flags when the id was inferred from a sibling JSONL (not the
-            # active window's exact session) — copy still works, but the
-            # target is the most-recent JSONL in the project dir, not
-            # necessarily the one this statusline is currently rendering.
-            label = f"claude --resume {context.session_id}"
+            # Render the ready-to-run ``<launcher> --resume <id>`` command so
+            # the user can copy/paste it into another window. The launcher
+            # is detected upstream (fcc-claude vs vanilla claude) and
+            # rendered as-is so the command works without manual editing.
+            # The ``~`` suffix flags when the id was inferred from a sibling
+            # JSONL (not the active window's exact session) — copy still
+            # works, but the target is the most-recent JSONL in the project
+            # dir, not necessarily the one this statusline is currently
+            # rendering.
+            label = f"{context.claude_launcher} --resume {context.session_id}"
             if context.session_id_inferred:
                 label = f"{label}~"
             parts_id.append(_colorize(f"{EMOJI_SESSION} {label}", DIM, use_color))

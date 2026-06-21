@@ -249,11 +249,35 @@ def _aggregate_cached(jsonl_path: Path, session_id: str | None) -> "TokenTotals"
     return totals
 
 
+def _detect_claude_launcher() -> str:
+    """Return ``"fcc-claude"`` if running under the free-claude-code wrapper,
+    otherwise ``"claude"``.
+
+    The detection is based on the ``ANTHROPIC_BASE_URL`` env var that
+    fcc-claude sets to the local ``fcc-server`` proxy URL. When the URL
+    points to localhost/127.0.0.1 we are almost certainly behind the
+    fcc-claude wrapper. Anything else (unset, or pointing at the official
+    Anthropic API) means a vanilla ``claude`` invocation.
+
+    Reference: fcc-claude source at
+    ``~/.local/share/uv/tools/free-claude-code/lib/.../cli/launchers/claude.py``
+    sets ``env["ANTHROPIC_BASE_URL"] = proxy_root_url`` where
+    ``proxy_root_url`` resolves to ``http://localhost:<port>``.
+    """
+    base_url = os.environ.get("ANTHROPIC_BASE_URL", "").strip().lower()
+    if not base_url:
+        return "claude"
+    if "localhost" in base_url or "127.0.0.1" in base_url or "::1" in base_url:
+        return "fcc-claude"
+    return "claude"
+
+
 def _build_context_info(
     stdin_hint: dict[str, Any],
     project_dir_fallback: str,
     session_id: str | None = None,
     session_id_inferred: bool = False,
+    claude_launcher: str = "claude",
 ) -> ContextInfo:
     """Build :class:`ContextInfo` from Claude Code's stdin payload.
 
@@ -261,7 +285,8 @@ def _build_context_info(
     not include ``workspace.current_dir``. The cc_version is sourced from
     ``version`` (no subprocess call needed). When ``session_id`` is provided,
     it is rendered as a second line in the statusline so the user can copy
-    it as ``claude --resume <id>`` in another window.
+    it as ``<launcher> --resume <id>`` (e.g. ``claude --resume <id>`` or
+    ``fcc-claude --resume <id>``) in another window.
     """
     cwd: str | None = None
     workspace = stdin_hint.get("workspace") if isinstance(stdin_hint, dict) else None
@@ -301,6 +326,7 @@ def _build_context_info(
         session_duration_ms=session_duration_ms,
         session_id=session_id,
         session_id_inferred=session_id_inferred,
+        claude_launcher=claude_launcher,
     )
 
 
@@ -566,6 +592,7 @@ def main() -> int:
         project_dir,
         session_id=resolved_session_id,
         session_id_inferred=session_id_inferred,
+        claude_launcher=_detect_claude_launcher(),
     )
     quota = None
     quota_provider_id = _active_quota_provider(

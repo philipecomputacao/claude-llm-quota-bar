@@ -23,7 +23,17 @@ versions grouped by date.
   from the new statusline bookmark) and an optional cwd, then drives
   Terminal.app via `osascript` to spawn `claude --resume <id>` in a new
   window. Validates the UUID format and the target directory before
-  doing anything. Swap `TERMINAL_APP="iTerm"` for iTerm2 users.
+  doing anything. Swap `TERMINAL_APP="iTerm"` for iTerm2 users and
+  `CLAUDE_CMD=fcc-claude` for the free-claude-code wrapper.
+- **Display: detect `fcc-claude` vs `claude` and render the right
+  `--resume` command on the bookmark line.** The statusline now inspects
+  the `ANTHROPIC_BASE_URL` env var (set to `localhost`/`127.0.0.1` by the
+  fcc-server proxy) and renders `fcc-claude --resume <id>` instead of
+  `claude --resume <id>` when running under the free-claude-code wrapper.
+  Copy-paste from the statusline works without manual editing. Detection
+  is centralised in `session_tokens.py:_detect_claude_launcher`; the new
+  `ContextInfo.claude_launcher` field defaults to `"claude"`, so existing
+  callers are unaffected.
 
 ### Fixed
 - **Display: strip gateway suffixes from the model label.** The statusline
