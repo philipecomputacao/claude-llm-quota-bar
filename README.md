@@ -20,12 +20,19 @@
 
 - 🧠 **Built for Claude Code, first** — tracks native Claude sessions out of
   the box: per-message tokens, cache reads/writes, context window %, and
-  burn rate (`🧊` / `⚡` / `🔥`) in three colour-coded lines.
+  burn rate (`🧊` / `⚡` / `🔥`) in colour-coded lines.
 - 📊 **Live quota when you route elsewhere** — extend the bar with the
   `⏱` segment for [MiniMax Token Plan](https://platform.minimax.io),
   OpenRouter credits, DeepSeek balance, Mistral usage, OpenAI credit
   grants, and Codex ChatGPT plan. Falls back gracefully when no key is set.
 - 💰 **Cost in BRL + USD** with a cached FX rate (refreshes hourly).
+- 🔖 **Session resume bookmark** — copy `claude --resume <id>` straight
+  from the statusline. Auto-detects the launcher (`fcc-claude` vs `claude`).
+  Colour signals whether the id is the active window's session or was inferred
+  from the most-recent JSONL.
+- 🔀 **Git-aware** — the 5th line shows the current branch and the last
+  commit. The branch colour reflects working-tree dirtyness vs HEAD: cyan
+  when clean, yellow at 50+ lines pending, red at 300+.
 - 🔌 **402 models** with auto-pricing from upstream `pricing.json`
   (Anthropic, OpenAI, Google, Mistral, DeepSeek + 18+ gateway pass-throughs).
 - 🪟 **Drop-in statusline script**: invoked by Claude Code as a Python
@@ -42,9 +49,10 @@ Native Claude Code session (no API key needed for the quota segment):
 
 ```
 📁 ~/src/my-project
-[claude-sonnet-4-5] • 📟 v2.1.170
+[claude-sonnet-4-5] • 📟 v2.1.170 • 🔖 claude --resume f47ac10b-...-4aae
 ⬆1.0M ⬇48k ↻R2.8M • 🧠 12% usado (88% livre)
 🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
+🔀 main • 1a2b3c4 • fix: correct off-by-one in user count
 ```
 
 Routed through a third-party provider with a quota adapter enabled
@@ -52,22 +60,25 @@ Routed through a third-party provider with a quota adapter enabled
 
 ```
 📁 ~/src/my-project
-[MiniMax-M3] • 📟 v2.1.170
+[MiniMax-M3·minimax] • 📟 v2.1.170 • 🔖 claude --resume f47ac10b-...-4aae
 ⬆1.0M ⬇48k ↻R2.8M • ⏱ 40% usado (60% livre) (reset 2h48m) • 🧠 12% usado (88% livre)
 🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
+🔀 feature/quota • 9c8b7a6 • feat(quota): add OpenAI credit grants adapter • +153/-22
 ```
 
 | Field | What it tells you |
 |---|---|
-| `[model·provider]` | Active model and the upstream that actually serves it (omitted when already in display name) |
+| `[model·provider]` | Active model and upstream provider (gateway suffixes stripped — ``minimax`` stays, ``opencode_go`` doesn't) |
 | `📁 cwd` | Full working directory on its own line — never truncated |
 | `📟 vX.Y.Z` | Claude Code version (hidden for unrecognised build strings) |
+| `🔖 launcher --resume <id>` | Copy-pasteable bookmark to reopen this session in another window. <br>Colour: `CYAN` = this window's exact session, `DIM` = inferred from most-recent JSONL (sibling window). <br>Auto-detects `claude` vs `fcc-claude` so the command works without editing. |
 | `⬆ input  ⬇ output  ↻R cache-read` | Token usage breakdown, with cache reads shown separately (green) |
 | `⏱ X% usado (Y% livre) (reset 2h)` | Live quota from the **provider's own API** — colour-coded by usage |
 | `🧠 X% usado (Y% livre)` | Context window usage, same colour rule |
 | `🇧🇷 R$ X  🇺🇸 $ Y` | Cost in both currencies (FX rate cached) |
 | `⌛ 25m` | Wall-clock session duration |
 | `⚡ 42951t/m` | Burn rate with 🧊 / ⚡ / 🔥 emoji by tier |
+| `🔀 branch • hash • title • +N/-M` | Git metadata for the project cwd. <br>Branch colour reflects **working-tree dirtyness** vs HEAD: <br>🟢 cyan (0 lines) · 🟡 yellow (50+ lines) · 🔴 red (300+ lines). <br>`+N/-M` suffix only appears when dirty. <br>Greyed-out `🔀 [sem git]` when not a repo — keeps vertical rhythm stable. |
 
 All segments are independently toggleable. All thresholds are configurable.
 
@@ -301,6 +312,7 @@ segment, the `⚡` burn rate, and the `R$` cost.
 | `🧠` context used % | `< 70%` | `70–89%` | `≥ 90%` |
 | `⚡` burn rate | `< 15k t/m` (or 150k for 1M-context models) | mid | `≥ 50k t/m` (or 500k) |
 | `R$` cost in BRL | `< R$ 0.50` | `R$ 0.50–2.49` | `≥ R$ 2.50` |
+| `🔀` git dirtyness | `0 lines` (clean) | `50–299 lines` pending | `≥ 300 lines` pending |
 
 The quota thresholds **changed in 2026-06**: we now show the **used** percentage
 (more intuitive: bigger = worse) and the alert kicks in at **85%**, not 90%. If
@@ -346,6 +358,9 @@ fall back to the defaults in `lib/display.py::DisplayOptions`.
 
   "quota_warn_pct":  60,        // yellow at 60% quota used
   "quota_alert_pct": 85,        // red    at 85% quota used
+
+  "git_dirty_warn_lines": 50,   // yellow at 50 lines pending
+  "git_dirty_alert_lines": 300, // red   at 300 lines pending
 
   "cost_warn_brl":   0.50,
   "cost_alert_brl":  2.50,
@@ -400,7 +415,7 @@ and falls back to a static 5.20 if the API is unreachable.
 │  Claude Code TUI   │ ───────────────► │  session_tokens.py │
 └────────────────────┘                  └──────────┬──────────┘
        ▲                                          │
-       │ renders 4 lines                          │ reads
+       │ renders 5 lines                          │ reads
        │                                          ▼
        │                                  ~/.claude/projects/<hash>/
        │                                  <sessionId>.jsonl
@@ -412,7 +427,8 @@ and falls back to a static 5.20 if the API is unreachable.
        │                              │                       │
        │                              └───────────┬───────────┘
        │                                          ▼
-       │                          4 lines: dir / model / tokens / cost
+       │                              5 lines: dir / id+bookmark / tokens /
+       │                              cost / git
        └──────────────────────────────────────────┘
 ```
 
@@ -421,15 +437,26 @@ default 5 s — and immediately after each model response):
 
 1. **Stdin parse** — Claude Code pipes a JSON payload with model id, working dir,
    version, and the cumulative session cost
-2. **JSONL aggregate** — the script reads `~/.claude/projects/<hash>/<sessionId>.jsonl`,
+2. **CWD resolution** — layered fallback: `CLAUDE_PROJECT_DIR` env → on-disk cache
+   (1h TTL) → `lsof` discovery (macOS) → placeholder. Keeps the bar working when
+   Claude Code forgets to export the env var.
+3. **JSONL aggregate** — the script reads `~/.claude/projects/<hash>/<sessionId>.jsonl`,
    sums `input_tokens` / `output_tokens` / `cache_read_input_tokens` /
-   `cache_creation_input_tokens` across all `assistant` messages in the session
-3. **Pricing lookup** — resolves the model id (with gateway-prefix stripping) to a
+   `cache_creation_input_tokens` across all `assistant` messages in the session.
+   Result is cached for 2 s (keyed on mtime+size) so consecutive render ticks reuse
+   the parsed aggregate.
+4. **Git metadata** — `lib/git.py` runs up to 4 `git` subprocesses on the resolved
+   cwd: branch, short hash, commit subject, and `diff HEAD --numstat` for
+   working-tree dirtyness. Each call is bounded by a 1.5 s timeout and falls back
+   silently to `None` / `0`.
+5. **Pricing lookup** — resolves the model id (with gateway-prefix stripping) to a
    `ModelPrice` entry, computes the cost in USD, converts to BRL using the cached FX
-4. **Quota lookup** — for the active provider, calls the matching `QuotaProvider.fetch()`
+6. **Quota lookup** — for the active provider, calls the matching `QuotaProvider.fetch()`
    in `lib/provider_quota.py`. Each adapter handles its own auth, retry, and caching
-5. **Render** — `_render_status_line()` in `lib/display.py` groups fields into
-   `[id, ⬆⬇↻, R$⌛⚡]` and emits ANSI-coloured output
+7. **Render** — `render()` in `lib/display.py` builds 5 lines:
+   `📁 cwd` · `[model·provider] 📟 version 🔖 bookmark` ·
+   `⬆⬇↻ ⏱ quota 🧠 context` · `🇧🇷 R$ 🇺🇸 $ ⌛ duration ⚡ burn` ·
+   `🔀 branch • hash • title • +N/-M`
 
 The script is **stateless** — every render reads from disk. This makes it safe to
 restart Claude Code mid-session without losing state.
@@ -658,7 +685,11 @@ CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=dev-test \
 │   ├── display.py           # ANSI colour rules + render pipeline
 │   ├── parser.py            # JSONL aggregator + token totals
 │   ├── pricing.py           # pricing.json loader + cost compute
-│   └── provider_quota.py    # 6 QuotaProvider adapters + registry
+│   ├── provider_quota.py    # 6 QuotaProvider adapters + registry
+│   ├── fx.py                # BRL/USD FX rate cache
+│   └── git.py               # git metadata resolver (branch, commit, dirtyness)
+├── scripts/
+│   └── new_window.sh        # macOS helper: open a new Terminal that resumes a session
 ├── pricing.json             # 402 models, 5 direct providers
 ├── statusline.env.json      # default display toggles
 └── .github/workflows/
