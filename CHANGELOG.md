@@ -24,8 +24,14 @@ versions grouped by date.
   local proxy (like `fcc-claude`/`fcc-server`) or straight to the
   official Anthropic API. The URL is read from `ANTHROPIC_BASE_URL`:
   - **Green** when the host is `localhost` / `127.0.0.1` / `::1` — the
-    typical `fcc-claude` setup. Shows the full URL (e.g.
-    `🌐 http://127.0.0.1:8082`).
+    typical `fcc-claude` setup AND the proxy answered the last health
+    probe (`"ok"`).
+  - **Red** when the URL points at a local proxy BUT the health probe
+    reported `"down"` (TCP refused, timeout, etc.). The user can tell
+    at a glance that the proxy is dead even though the URL is still
+    configured. New `lib/router_health.py` module runs a single HEAD
+    request with a 1.0s timeout, cached in-memory for 45s
+    (`router_health_ttl_seconds` in `statusline.env.json`).
   - **Grey** (`router desativado`) when unset or pointing at the
     official Anthropic API. Toggled via `show_router: true/false` in
     `statusline.env.json` (default: on). Mirrors the same heuristic as

@@ -34,6 +34,7 @@ sys.path.insert(0, str(THIS_DIR))
 from lib.display import ContextInfo, DisplayOptions, render  # noqa: E402
 from lib.fx import DEFAULT_TTL_SECONDS, resolve_rate  # noqa: E402
 from lib.git import resolve_git  # noqa: E402
+from lib.router_health import check_router  # noqa: E402
 from lib.parser import (  # noqa: E402
     TokenTotals,
     _provider_from_model,
@@ -375,6 +376,38 @@ def _router_url() -> str:
     return os.environ.get("ANTHROPIC_BASE_URL", "").strip()
 
 
+def _router_health(router_url: str, opts: "DisplayOptions") -> str:
+    """Return the health verdict for the local router, or ``"ok"`` for non-local.
+
+    Skips the network probe entirely when the URL is not a local proxy
+    (vanilla claude → no point pinging api.anthropic.com on every tick) and
+    when ``show_router_health`` is disabled in the user config. Returns
+    ``"ok"`` in both cases so the renderer keeps the default colour.
+
+    The verdict comes from :func:`lib.router_health.check_router` which
+    caches results in-memory for ``opts.router_health_ttl_seconds``
+    (default 45s). On the cache-hit path, this function returns in < 1 ms
+    with no I/O. On the cache-miss path, it issues a single HEAD with
+    a 1.0s timeout — bounded so a frozen proxy can't blank the
+    statusline.
+    """
+    if not opts.show_router_health:
+        return "ok"
+    if not router_url:
+        return "ok"
+    # Mirror the same heuristic as ``_is_local_proxy_url`` in
+    # ``lib/display.py`` so we only probe URLs the user can actually
+    # reconfigure / restart. The duplication is intentional: the renderer
+    # owns the colour rule, the entry point owns the probe-or-skip rule.
+    lowered = router_url.lower()
+    is_local = any(
+        marker in lowered for marker in ("localhost", "127.0.0.1", "::1")
+    )
+    if not is_local:
+        return "ok"
+    return check_router(router_url, cache_ttl_seconds=opts.router_health_ttl_seconds)
+
+
 def _stdin_cwd(stdin_hint: dict[str, Any], fallback: str | None) -> str | None:
     """Extract the working directory from Claude Code's stdin payload.
 
@@ -409,6 +442,7 @@ def _build_context_info(
     git_dirty_deleted: int = 0,
     git_dirty_level: str = "clean",
     router_url: str | None = None,
+    router_health: str = "ok",
 ) -> ContextInfo:
     """Build :class:`ContextInfo` from Claude Code's stdin payload.
 
@@ -458,6 +492,7 @@ def _build_context_info(
         git_dirty_lines_deleted=git_dirty_deleted,
         git_dirty_level=git_dirty_level,
         router_url=router_url,
+        router_health=router_health,
     )
 
 
@@ -947,6 +982,7 @@ def _main_impl(started: float) -> int:
     else:
         git_dirty_level = "clean"
 
+    router_url = _router_url()
     context = _build_context_info(
         stdin_hint,
         project_dir,
@@ -959,7 +995,8 @@ def _main_impl(started: float) -> int:
         git_dirty_added=git_info.dirty_added,
         git_dirty_deleted=git_info.dirty_deleted,
         git_dirty_level=git_dirty_level,
-        router_url=_router_url(),
+        router_url=router_url,
+        router_health=_router_health(router_url, opts),
     )
     quota = None
     quota_provider_id = _active_quota_provider(

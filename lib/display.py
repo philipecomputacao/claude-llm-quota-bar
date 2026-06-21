@@ -53,6 +53,16 @@ class DisplayOptions:
     # proxy), shows the URL in green. When vanilla ``claude``, shows
     # "router desativado" in grey. Override in statusline.env.json.
     show_router: bool = True
+    # Run a HEAD probe against a local proxy to detect a dead router.
+    # The probe is cached in-memory for ``router_health_ttl_seconds``
+    # (default 45s) and runs on a 1.0s timeout, so the worst case is
+    # one slow tick per cache window. Disable to revert to env-only
+    # behaviour (the segment colour reflects the URL, not the probe).
+    show_router_health: bool = True
+    # TTL for the in-memory health cache. Lower = faster crash recovery,
+    # higher = fewer HEAD requests on the proxy. See
+    # ``lib/router_health.py`` for the trade-off discussion.
+    router_health_ttl_seconds: float = 45.0
     quota_warn_pct: float = 60.0
     quota_alert_pct: float = 85.0
     # Git working-tree dirtyness thresholds (lines added+deleted vs HEAD).
@@ -118,6 +128,13 @@ class ContextInfo:
     #   ``🌐 router desativado`` in grey.
     # Populated upstream by ``session_tokens.py::_router_url``.
     router_url: str | None = None
+    # Health verdict for the local proxy. Populated by
+    # ``lib.router_health.check_router`` when ``show_router_health`` is
+    # enabled and the URL points at a local proxy. ``"ok"`` → green,
+    # ``"down"`` → red, ``"unknown"`` → green (the probe could not be
+    # completed but the URL is configured). The default ``"ok"`` is a
+    # safe placeholder for non-local URLs that we never probe.
+    router_health: str = "ok"
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -385,7 +402,9 @@ def _is_local_proxy_url(url: str | None) -> bool:
 
 
 def _render_router_segment(
-    router_url: str | None, use_color: bool
+    router_url: str | None,
+    router_health: str,
+    use_color: bool,
 ) -> str | None:
     """Build the 🌐 router segment for the cost line.
 
@@ -400,14 +419,25 @@ def _render_router_segment(
     Visual states:
 
     - ``🌐 <url>`` (green) when ANTHROPIC_BASE_URL points at a local proxy
-      like ``http://localhost:8082`` (the typical ``fcc-claude`` setup).
-    - ``🌐 router desativado`` (grey) when ANTHROPIC_BASE_URL is unset or
-      points at the official Anthropic API. Fixed Portuguese phrase keeps
-      the segment short and predictable even when the URL is long.
+      like ``http://localhost:8082`` (the typical ``fcc-claude`` setup)
+      AND the proxy answered the last health probe (``"ok"``).
+    - ``🌐 <url>`` (red) when the URL points at a local proxy BUT the
+      health probe reported ``"down"`` (TCP refused, timeout, etc.). The
+      user can tell at a glance that the proxy is dead even though the
+      URL is still configured.
+    - ``🌐 <url>`` (green, default) when the health verdict is
+      ``"unknown"`` — we couldn't reach a verdict (SSL error, etc.)
+      but the URL is configured. We default to green so we don't
+      false-alarm the user on a transient misconfiguration.
+    - ``🌐 router desativado`` (grey) when ANTHROPIC_BASE_URL is unset
+      or points at the official Anthropic API. Fixed Portuguese phrase
+      keeps the segment short and predictable even when the URL is long.
     """
     if router_url is None:
         return None
     if router_url and _is_local_proxy_url(router_url):
+        if router_health == "down":
+            return _colorize(f"{EMOJI_ROUTER} {router_url}", RED, use_color)
         return _colorize(f"{EMOJI_ROUTER} {router_url}", GREEN, use_color)
     return _colorize(f"{EMOJI_ROUTER} router desativado", GRAY, use_color)
 
@@ -537,10 +567,15 @@ def render(
 
     # Router segment — shows 🌐 on the cost line so the user knows whether
     # the active session is going through a local proxy (fcc-claude / fcc-server)
-    # or straight to the official Anthropic API. Green = local proxy active,
-    # grey = vanilla claude. Suppressed by ``show_router: false`` in the env.
+    # or straight to the official Anthropic API. Green = local proxy alive,
+    # red = local proxy down, grey = vanilla claude. Suppressed by
+    # ``show_router: false`` in the env. The health probe itself is gated by
+    # ``show_router_health``; when disabled, the verdict stays at the default
+    # ``"ok"`` and we skip the network call entirely.
     if opts.show_router and context is not None:
-        router_segment = _render_router_segment(context.router_url, use_color)
+        router_segment = _render_router_segment(
+            context.router_url, context.router_health, use_color
+        )
         if router_segment:
             parts_custo.append(router_segment)
 
