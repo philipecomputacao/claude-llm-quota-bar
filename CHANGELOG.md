@@ -36,6 +36,16 @@ versions grouped by date.
   callers are unaffected.
 
 ### Fixed
+- **Display: replace the `~` suffix on the bookmark line with `(inferido)`.**
+  The previous suffix glued itself to the UUID when the user copied the
+  whole line, turning `fcc-claude --resume <id>` into `<id>~` and
+  silently routing the command to the resume-search screen instead of
+  the actual session. The new rendering keeps the command part clean
+  (`<launcher> --resume <id>`) and appends ` (inferido)` as a separate
+  token. Double-click on the UUID still selects only the id; copying
+  the whole line carries the marker along but the id stays in the
+  correct position, so the command keeps working even when the marker
+  is left in place.
 - **Session: layered fallback for `CLAUDE_PROJECT_DIR` resolution.** Claude
   Code occasionally drops the `CLAUDE_PROJECT_DIR` env var on some
   refresh ticks — the symptom was a blank statusline slot or a stuck

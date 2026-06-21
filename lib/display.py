@@ -470,14 +470,16 @@ def render(
             # the user can copy/paste it into another window. The launcher
             # is detected upstream (fcc-claude vs vanilla claude) and
             # rendered as-is so the command works without manual editing.
-            # The ``~`` suffix flags when the id was inferred from a sibling
-            # JSONL (not the active window's exact session) — copy still
-            # works, but the target is the most-recent JSONL in the project
-            # dir, not necessarily the one this statusline is currently
-            # rendering.
+            # When the id was inferred from a sibling JSONL (not the
+            # active window's exact session), we render the literal
+            # command (id without any suffix) PLUS a trailing
+            # ``(inferido)`` marker separated by a space. The split
+            # keeps copy-paste safe: terminal selection of just the id
+            # (e.g. double-click on the UUID) yields a clean command;
+            # the marker is metadata only.
             label = f"{context.claude_launcher} --resume {context.session_id}"
             if context.session_id_inferred:
-                label = f"{label}~"
+                label = f"{label} (inferido)"
             parts_id.append(_colorize(f"{EMOJI_SESSION} {label}", DIM, use_color))
         if context.context_used_pct is not None:
             used = max(0, min(100, context.context_used_pct))
