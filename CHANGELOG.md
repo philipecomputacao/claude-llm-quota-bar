@@ -15,6 +15,16 @@ versions grouped by date.
   known-gateway list (`opencode_go` / `opencode` / `open_router`) is
   centralised in `lib/display.py:_GATEWAY_DISPLAY_LABELS`; upstream labels
   like `(minimax)` are kept as-is.
+- **Pricing: strip inherited `anthropic/` prefix from `ModelPrice.display`.**
+  The 16 `open_router/anthropic/*` entries in `pricing.json` (e.g.
+  `claude-fable-5`, `claude-opus-4.7`) had `display = "anthropic/claude-..."`
+  because the fcc-claude gateway inherits the upstream native-Anthropic id
+  when routing native-shaped models through OpenRouter. The prefix is
+  misleading on the statusline — it reads like "this is an Anthropic-native
+  model" when in fact it was routed through `open_router`. The strip happens
+  in `lib/pricing.py:_entry_to_price` (data-layer fix), so every consumer of
+  `ModelPrice.display` sees a clean label. The `pricing.json` file is
+  untouched; the strip is applied at load time.
 
 ### Planned
 - (no items yet)

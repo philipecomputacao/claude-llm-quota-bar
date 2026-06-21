@@ -74,10 +74,21 @@ def load_pricing_table(path: Path) -> tuple[dict[str, ModelPrice], float]:
 
 
 def _entry_to_price(model_id: str, entry: dict[str, Any]) -> ModelPrice:
+    display = str(entry.get("display", model_id.split("/")[-1]))
+    # The fcc-claude gateway sometimes routes native-Anthropic-shaped models
+    # (e.g. ``claude-fable-5``) through third-party gateways (OpenRouter) and
+    # inherits the ``anthropic/`` prefix on the upstream id — see the
+    # ``open_router/anthropic/*`` entries in pricing.json. The prefix is
+    # useful as an upstream-id tag but it is misleading on the statusline,
+    # where it reads like "this is an Anthropic-native model" when in fact
+    # the request was routed through ``open_router``. Strip it here so every
+    # consumer of ``ModelPrice.display`` sees a clean label.
+    if display.startswith("anthropic/"):
+        display = display[len("anthropic/"):]
     return ModelPrice(
         model_id=model_id,
         provider=str(entry.get("provider", "unknown")),
-        display=str(entry.get("display", model_id.split("/")[-1])),
+        display=display,
         input_per_million=float(entry.get("input", 0.0)),
         output_per_million=float(entry.get("output", 0.0)),
         cache_read_per_million=float(entry.get("cache_read", 0.0)),
