@@ -61,12 +61,13 @@ DEBUG_ENV = "CLAUDE_LLM_QUOTA_BAR_DEBUG"
 DEBUG_CACHE_FILENAME = "debug.json"
 DEBUG_MAX_BYTES = 64 * 1024  # rotate if larger than this
 
-# How recently a JSONL must have been modified for the ``locate_latest_log``
-# fallback to be considered safe. A tick that lost its session id will only
-# pick up a sibling window's JSONL if that sibling was touched within this
-# window — older JSONLs are treated as "not mine" and the placeholder is
-# shown instead.
-LATEST_LOG_MAX_AGE_SECONDS = 300  # 5 minutes
+# Note: previous revisions had a ``LATEST_LOG_MAX_AGE_SECONDS`` constant and
+# an "ambiguous" branch that refused the fallback when the project dir
+# contained multiple JSONLs. That branch ended up rejecting the fallback
+# for sessions with accumulated history (multiple historical JSONLs in
+# the same project_dir) and stuck the user on the [sem sessão] placeholder
+# even in the obvious "single window" case. Reverted to the original
+# ``locate_latest_log`` behaviour below — see ``_safe_log_path`` docstring.
 
 
 def _load_display_options(config_path: Path) -> DisplayOptions:
@@ -162,16 +163,15 @@ def _safe_log_path(
 
     1. **Exact match** — ``locate_session_log(claude_dir, project_dir,
        session_id)``. Returns the path if found.
-    2. **Recent-only fallback** — when no exact match is found AND
-       ``session_id`` is non-empty (so a tick that simply lost its session
-       id is still served): use ``locate_latest_log`` ONLY if exactly one
-       JSONL exists in the project dir (obvious single-session case) OR if
-       the most-recent JSONL was modified within
-       :data:`LATEST_LOG_MAX_AGE_SECONDS` and no other JSONL is more recent.
-       This is a safety net for the rare Claude Code tick that drops the
-       session id; it never picks a stale JSONL from a sibling window.
-    3. Otherwise return ``(None, None, "no_session")`` and let the caller
-       render :data:`NO_SESSION_PLACEHOLDER`.
+    2. **Latest JSONL fallback** — when no exact match is found OR the
+       session id is empty (Claude Code tick that failed to export
+       ``CLAUDE_SESSION_ID``), use ``locate_latest_log`` to pick the
+       most-recent JSONL in the project directory. This is the original
+       pre-c3cc337 behaviour; see the commit message for the trade-off
+       discussion.
+    3. Otherwise (no JSONLs in the project dir) return
+       ``(None, None, "no_jsonls")`` and let the caller render
+       :data:`NO_SESSION_PLACEHOLDER`.
 
     The third return value is a short tag describing which path was taken,
     for the debug dump.
@@ -180,30 +180,26 @@ def _safe_log_path(
         path = locate_session_log(claude_dir, project_dir, session_id)
         if path is not None:
             return path, None, "exact"
-    # No exact match (or no session id). Try the recent-only fallback.
+    # No session id (or no exact match). Fall back to the most-recent
+    # JSONL in the project directory. This is the original pre-c3cc337
+    # behaviour: it may briefly surface a sibling window's data when two
+    # Claude Code windows share the same cwd AND a tick on one of them
+    # loses its session id, but in practice the tick recovers on the next
+    # refresh (5 s later) and the flicker is rare. The cost of being
+    # conservative (refusing the fallback) was that sessions with
+    # accumulated history in the project dir were stuck on the
+    # ``[sem sessão]`` placeholder indefinitely — the user has multiple
+    # historical JSONLs in their project dir, and any new window opened
+    # in that dir ended up on the placeholder path because the latest
+    # JSONL was ambiguous with the historical ones.
+    #
+    # The cross-window flicker is still observable via the debug dump
+    # (set ``CLAUDE_LLM_QUOTA_BAR_DEBUG=1``) if it becomes a problem
+    # again.
     jsonls = _list_project_jsonls(claude_dir, project_dir)
     if not jsonls:
         return None, None, "no_jsonls"
-    if len(jsonls) == 1:
-        # Obvious case: this is the only session in the project dir.
-        fallback = jsonls[-1]
-        return fallback, parse_first_response_model(fallback), "single_jsonl"
     latest = jsonls[-1]
-    try:
-        age = time.time() - latest.stat().st_mtime
-    except OSError:
-        return None, None, "stat_failed"
-    if age > LATEST_LOG_MAX_AGE_SECONDS:
-        # The latest JSONL is from a long-closed session — picking it would
-        # surface a sibling window's stale data. Refuse.
-        return None, None, "stale_latest"
-    # Multiple JSONLs but the latest is recent AND we have no session id
-    # to disambiguate. Be conservative: if there are 2+ and the latest is
-    # recent, we can't tell which one is ours — refuse and let the caller
-    # show the placeholder. The "single JSONL" case above already covers
-    # the obvious one-window scenario.
-    if len(jsonls) > 1:
-        return None, None, "ambiguous"
     return latest, parse_first_response_model(latest), "fallback"
 
 

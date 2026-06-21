@@ -32,20 +32,21 @@ versions grouped by date.
   in `lib/pricing.py:_entry_to_price` (data-layer fix), so every consumer of
   `ModelPrice.display` sees a clean label. The `pricing.json` file is
   untouched; the strip is applied at load time.
-- **Session isolation: keep the `locate_latest_log` fallback only when it
-  is safe.** When the exact session id resolution fails, the previous
-  behaviour would pick the most-recent JSONL in the project directory —
-  unsafe when two Claude Code windows share the same cwd (a tick on
-  window B with no session id could render A's model). The new
-  `_safe_log_path` keeps the fallback only when (a) the project dir
-  contains exactly one JSONL (obvious single-session case), OR (b) the
-  most-recent JSONL was modified within the last 5 minutes
-  (`LATEST_LOG_MAX_AGE_SECONDS`) AND no other JSONL is more recent. When
-  both checks fail — i.e. multiple JSONLs in the project dir, latest from
-  a sibling window — the `[sem sessão]` placeholder is shown instead of
-  phantom data. The resolution path taken is returned as a third tuple
-  element (`exact` / `single_jsonl` / `stale_latest` / `ambiguous` /
-  `no_jsonls`) and is captured in the debug dump.
+- **Session isolation: always fall back to the most-recent JSONL when the
+  session id is missing or unmatched.** The previous `81140be` heuristic
+  (`single_jsonl` / `stale_latest` / `ambiguous` gates) was too
+  conservative in practice — common multi-window sessions have several
+  historical JSONLs in the project dir, so the heuristic was rejecting
+  the fallback even for fresh single-window sessions and leaving the
+  statusline stuck on `[sem sessão]`. The new `_safe_log_path` always
+  returns the most-recent JSONL when the exact match fails, matching the
+  pre-`c3cc337` behaviour. The trade-off (a tick on window B with no
+  session id could briefly render window A's data) is now visible in the
+  statusline via the inline tag — `[sem sessão] · fallback` is only
+  shown when there is truly no JSONL to read (`no_jsonls`). The
+  `LATEST_LOG_MAX_AGE_SECONDS` constant was removed; the debug dump
+  retains the `exact` / `no_jsonls` / `fallback` tag for post-mortem
+  inspection.
 - **Debug: opt-in diagnostic dump via `CLAUDE_LLM_QUOTA_BAR_DEBUG=1`.**
   When this env var is set, every statusline invocation appends a
   one-line JSON entry to `~/.cache/claude-llm-quota-bar/debug.json` (with
