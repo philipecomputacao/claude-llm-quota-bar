@@ -156,7 +156,7 @@ def _safe_log_path(
     claude_dir: Path,
     project_dir: str,
     session_id: str,
-) -> tuple[Path | None, str | None, str]:
+) -> tuple[Path | None, str | None, str, bool]:
     """Locate the JSONL path for the given session.
 
     Resolution order:
@@ -170,16 +170,20 @@ def _safe_log_path(
        pre-c3cc337 behaviour; see the commit message for the trade-off
        discussion.
     3. Otherwise (no JSONLs in the project dir) return
-       ``(None, None, "no_jsonls")`` and let the caller render
+       ``(None, None, "no_jsonls", False)`` and let the caller render
        :data:`NO_SESSION_PLACEHOLDER`.
 
-    The third return value is a short tag describing which path was taken,
-    for the debug dump.
+    Returns ``(path, resolved_session_id, resolution_tag, inferred)`` where
+    ``resolved_session_id`` is the stem of the JSONL we ended up reading —
+    either the one Claude Code exported (when exact) or the one we picked
+    from the latest JSONL (when fallback). The 4th flag ``inferred`` is True
+    when the id came from the fallback path (the user should treat it as a
+    hint, not as the window's exact id).
     """
     if session_id:
         path = locate_session_log(claude_dir, project_dir, session_id)
         if path is not None:
-            return path, None, "exact"
+            return path, session_id, "exact", False
     # No session id (or no exact match). Fall back to the most-recent
     # JSONL in the project directory. This is the original pre-c3cc337
     # behaviour: it may briefly surface a sibling window's data when two
@@ -198,9 +202,9 @@ def _safe_log_path(
     # again.
     jsonls = _list_project_jsonls(claude_dir, project_dir)
     if not jsonls:
-        return None, None, "no_jsonls"
+        return None, None, "no_jsonls", False
     latest = jsonls[-1]
-    return latest, parse_first_response_model(latest), "fallback"
+    return latest, latest.stem, "fallback", True
 
 
 # Statusline parses the JSONL on every refresh. To avoid re-reading a
@@ -248,12 +252,16 @@ def _aggregate_cached(jsonl_path: Path, session_id: str | None) -> "TokenTotals"
 def _build_context_info(
     stdin_hint: dict[str, Any],
     project_dir_fallback: str,
+    session_id: str | None = None,
+    session_id_inferred: bool = False,
 ) -> ContextInfo:
     """Build :class:`ContextInfo` from Claude Code's stdin payload.
 
     Falls back to ``CLAUDE_PROJECT_DIR`` for ``cwd`` when the stdin hint does
     not include ``workspace.current_dir``. The cc_version is sourced from
-    ``version`` (no subprocess call needed).
+    ``version`` (no subprocess call needed). When ``session_id`` is provided,
+    it is rendered as a second line in the statusline so the user can copy
+    it as ``claude --resume <id>`` in another window.
     """
     cwd: str | None = None
     workspace = stdin_hint.get("workspace") if isinstance(stdin_hint, dict) else None
@@ -291,6 +299,8 @@ def _build_context_info(
         cc_version=cc_version,
         context_used_pct=context_used_pct,
         session_duration_ms=session_duration_ms,
+        session_id=session_id,
+        session_id_inferred=session_id_inferred,
     )
 
 
@@ -506,7 +516,7 @@ def main() -> int:
     if std_model is None:
         std_model = os.environ.get("CLAUDE_MODEL")
 
-    log_path, fallback_model, resolution_tag = _safe_log_path(
+    log_path, resolved_session_id, resolution_tag, session_id_inferred = _safe_log_path(
         claude_dir, project_dir, session_id
     )
     if log_path is None:
@@ -529,8 +539,9 @@ def main() -> int:
         "log_path": str(log_path),
         "log_size": log_path.stat().st_size if log_path.exists() else 0,
     })
-    from lib.parser import aggregate_session
+    from lib.parser import aggregate_session, parse_first_response_model
 
+    fallback_model = parse_first_response_model(log_path) if resolution_tag == "fallback" else None
     totals = _aggregate_cached(log_path, session_id or "")
     last_model = totals.last_model or fallback_model or std_model
     if fallback_model and totals.request_count == 0:
@@ -550,7 +561,12 @@ def main() -> int:
     price = _price_for_model(last_model, table)
     cost = compute_cost(totals, table, fx.rate)
 
-    context = _build_context_info(stdin_hint, project_dir)
+    context = _build_context_info(
+        stdin_hint,
+        project_dir,
+        session_id=resolved_session_id,
+        session_id_inferred=session_id_inferred,
+    )
     quota = None
     quota_provider_id = _active_quota_provider(
         totals, fallback_model, std_model, price

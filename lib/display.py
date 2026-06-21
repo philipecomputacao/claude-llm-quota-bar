@@ -70,6 +70,15 @@ class ContextInfo:
     cc_version: str | None = None
     context_used_pct: int | None = None  # 0-100, percent of context used
     session_duration_ms: int | None = None  # wall-clock since session started (from stdin)
+    # Full session id (UUID, 36 chars). When set, the statusline renders a
+    # second line with the ready-to-run ``claude --resume <id>`` command so
+    # the user can copy/paste it into another window to migrate the session.
+    session_id: str | None = None
+    # Whether the session_id above was recovered via the ``locate_latest_log``
+    # fallback (i.e. the id does NOT belong to the active window — it is the
+    # most-recent JSONL in the project dir). When True, the statusline adds a
+    # ``~`` suffix to flag the imprecision.
+    session_id_inferred: bool = False
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -80,6 +89,7 @@ EMOJI_CONTEXT = "\U0001F9E0"  # 🧠
 EMOJI_QUOTA = "\u23F1"        # ⏱
 EMOJI_CALENDAR = "\U0001F4C5" # 📅
 EMOJI_TIMER = "\u231B"        # ⌛ (session duration; avoids colliding with ⏱ quota)
+EMOJI_SESSION = "\U0001F516"  # 🔖 (session id bookmark)
 
 # Burn-rate visual states. The emoji tells the rate at a glance even when the
 # terminal does not render ANSI colors (e.g. plain logs, some macOS themes).
@@ -449,6 +459,17 @@ def render(
             parts_id.append(
                 _colorize(f"{EMOJI_CC} v{context.cc_version}", DIM, use_color)
             )
+        if context.session_id:
+            # Render the ready-to-run ``claude --resume <id>`` command so the
+            # user can copy/paste it into another window. The ``~`` suffix
+            # flags when the id was inferred from a sibling JSONL (not the
+            # active window's exact session) — copy still works, but the
+            # target is the most-recent JSONL in the project dir, not
+            # necessarily the one this statusline is currently rendering.
+            label = f"claude --resume {context.session_id}"
+            if context.session_id_inferred:
+                label = f"{label}~"
+            parts_id.append(_colorize(f"{EMOJI_SESSION} {label}", DIM, use_color))
         if context.context_used_pct is not None:
             used = max(0, min(100, context.context_used_pct))
             remaining = 100 - used

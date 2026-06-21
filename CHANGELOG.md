@@ -6,6 +6,25 @@ versions grouped by date.
 
 ## [Unreleased]
 
+### Added
+- **Display: render the active session id on the statusline.** A new line is
+  added between the model header and the usage row, formatted as
+  `🔖 claude --resume <id>` so the user can copy/paste the command into
+  another terminal window to migrate the conversation there. When the
+  session id was recovered via the `locate_latest_log` fallback (not the
+  exact match from `CLAUDE_SESSION_ID`), a `~` suffix flags the
+  imprecision — the id still works for `--resume`, but it may be a
+  sibling window's session rather than the one currently rendering. The
+  new `ContextInfo` fields (`session_id`, `session_id_inferred`) are
+  optional and default to `None` / `False`, so existing callers (tests,
+  smoke) are unaffected.
+- **`scripts/new_window.sh` — open a new Terminal window that resumes a
+  given session.** macOS-only helper that takes a session id (paste it
+  from the new statusline bookmark) and an optional cwd, then drives
+  Terminal.app via `osascript` to spawn `claude --resume <id>` in a new
+  window. Validates the UUID format and the target directory before
+  doing anything. Swap `TERMINAL_APP="iTerm"` for iTerm2 users.
+
 ### Fixed
 - **Display: strip gateway suffixes from the model label.** The statusline
   no longer renders the pricing/roteamento metadata in parentheses —
