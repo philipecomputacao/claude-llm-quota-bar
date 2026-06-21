@@ -96,8 +96,14 @@ def _read_stdin() -> dict[str, Any]:
         return {}
 
 
-def _debug_dump(payload: dict[str, Any]) -> None:
+def _debug_dump(payload: dict[str, Any], *, force: bool = False) -> None:
     """Append a single-line JSON entry to the debug cache file.
+
+    By default, only writes when :data:`DEBUG_ENV` is set (opt-in). When
+    ``force=True``, writes regardless — used to capture the failure path
+    (placeholder shown) even when the user has not opted in, so that the
+    bug can be diagnosed from a single ``cat`` of the file without having
+    to re-export the env var.
 
     Best-effort: any failure (missing cache dir, permission error) is
     swallowed silently so the debug mode never breaks the statusline. The
@@ -105,7 +111,7 @@ def _debug_dump(payload: dict[str, Any]) -> None:
     public signal — env vars, JSONL resolution result, totals — never stdin
     contents or anything that could contain user data.
     """
-    if not os.environ.get(DEBUG_ENV):
+    if not force and not os.environ.get(DEBUG_ENV):
         return
     try:
         cache_dir = DEFAULT_CLAUDE_DIR.parent / ".cache" / "claude-llm-quota-bar"
@@ -514,7 +520,7 @@ def main() -> int:
             "resolution": resolution_tag,
             "log_path": None,
             "placeholder": NO_SESSION_PLACEHOLDER,
-        })
+        }, force=True)
         print(NO_SESSION_PLACEHOLDER, flush=True)
         return 0
     _debug_dump({
