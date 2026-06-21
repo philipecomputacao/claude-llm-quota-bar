@@ -769,11 +769,22 @@ def main() -> int:
     except Exception:
         # Any unhandled exception would blank the statusline bar entirely —
         # Claude Code's subprocess runner swallows stderr, so the user sees
-        # nothing.  Print a graceful fallback with the exception type so the
-        # user at least knows the bar is alive and can report the error.
+        # nothing.  Print a graceful fallback with the exception type AND the
+        # file/line of the last frame so the user can diagnose from the
+        # statusline itself (no need to inspect stderr). The location suffix
+        # is a cheap heuristic: take ``<module>:<lineno>`` from the last
+        # traceback frame, clipped to 60 chars to keep the bar compact.
+        import traceback as _tb
+
         exc_name = sys.exc_info()[0].__name__ if sys.exc_info()[0] else "?"
+        location = "?"
+        try:
+            last_frame = _tb.extract_tb(sys.exc_info()[2])[-1]
+            location = f"{last_frame.filename.rsplit('/', 1)[-1]}:{last_frame.lineno}"
+        except Exception:
+            pass
         print(
-            f"{NO_SESSION_PLACEHOLDER} \x1b[2m(erro: {exc_name})\x1b[0m",
+            f"{NO_SESSION_PLACEHOLDER} \x1b[2m(erro: {exc_name} @ {location})\x1b[0m",
             flush=True,
         )
         return 1
