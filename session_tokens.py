@@ -291,6 +291,27 @@ def _detect_claude_launcher() -> str:
     return "claude"
 
 
+def _stdin_cwd(stdin_hint: dict[str, Any], fallback: str | None) -> str | None:
+    """Extract the working directory from Claude Code's stdin payload.
+
+    Priority: ``workspace.current_dir`` → ``workspace.project_dir`` →
+    ``cwd`` → ``fallback``. Returns ``None`` when every layer is empty.
+
+    This is a tiny shared helper so that both ``_build_context_info`` and
+    ``main()`` (for ``resolve_git``) use the same CWD — without it, the
+    git line shows ``[sem git]`` when ``CLAUDE_PROJECT_DIR`` is unset but
+    the stdin payload carries the cwd (the statusline renders the folder
+    correctly but ``resolve_git`` sees an empty string).
+    """
+    cwd: str | None = None
+    workspace = stdin_hint.get("workspace") if isinstance(stdin_hint, dict) else None
+    if isinstance(workspace, dict):
+        cwd = workspace.get("current_dir") or workspace.get("project_dir")
+    if not cwd and isinstance(stdin_hint, dict):
+        cwd = stdin_hint.get("cwd")
+    return cwd or fallback
+
+
 def _build_context_info(
     stdin_hint: dict[str, Any],
     project_dir_fallback: str,
@@ -313,14 +334,7 @@ def _build_context_info(
     it as ``<launcher> --resume <id>`` (e.g. ``claude --resume <id>`` or
     ``fcc-claude --resume <id>``) in another window.
     """
-    cwd: str | None = None
-    workspace = stdin_hint.get("workspace") if isinstance(stdin_hint, dict) else None
-    if isinstance(workspace, dict):
-        cwd = workspace.get("current_dir") or workspace.get("project_dir")
-    if not cwd and isinstance(stdin_hint, dict):
-        cwd = stdin_hint.get("cwd")
-    if not cwd:
-        cwd = project_dir_fallback or None
+    cwd = _stdin_cwd(stdin_hint, project_dir_fallback or None)
 
     cc_version: str | None = None
     if isinstance(stdin_hint, dict):
@@ -783,10 +797,12 @@ def main() -> int:
     cost = compute_cost(totals, table, fx.rate)
 
     # Resolve git metadata (branch + last commit) for the resolved cwd.
-    # Cheap when not a repo (~5 ms, one .git/ stat). When a repo, runs
-    # three short `git` subprocesses bounded by 1.5 s timeouts — never
-    # blocks the statusline on a hung git invocation.
-    git_info = resolve_git(project_dir or None)
+    # Use the same CWD that _build_context_info will use — stdin hint first,
+    # then the env/cache/lsof fallback. This prevents a mismatch where the
+    # statusline shows the correct folder (from stdin) but resolve_git sees
+    # an empty string (env var unset on this tick) and renders [sem git].
+    git_cwd = _stdin_cwd(stdin_hint, project_dir or None)
+    git_info = resolve_git(git_cwd)
 
     # Classify working-tree dirtyness so the render layer can pick the
     # right colour. Thresholds come from DisplayOptions (defaults 50/300,
