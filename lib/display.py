@@ -85,6 +85,13 @@ class ContextInfo:
     # ``fcc-claude --resume <id>`` so copy-paste works without manual
     # editing when the user is on the free-claude-code wrapper.
     claude_launcher: str = "claude"
+    # Git metadata for the resolved cwd. All ``None`` when the cwd is not
+    # a git repo or git is unavailable; the renderer falls back to a
+    # greyed-out ``🔀 [sem git]`` line. Populated upstream by
+    # ``lib.git.resolve_git``.
+    git_branch: str | None = None
+    git_commit_short: str | None = None
+    git_commit_title: str | None = None
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -96,6 +103,7 @@ EMOJI_QUOTA = "\u23F1"        # ⏱
 EMOJI_CALENDAR = "\U0001F4C5" # 📅
 EMOJI_TIMER = "\u231B"        # ⌛ (session duration; avoids colliding with ⏱ quota)
 EMOJI_SESSION = "\U0001F516"  # 🔖 (session id bookmark)
+EMOJI_GIT = "\U0001F500"       # 🔀 (branch / last commit line)
 
 # Burn-rate visual states. The emoji tells the rate at a glance even when the
 # terminal does not render ANSI colors (e.g. plain logs, some macOS themes).
@@ -361,15 +369,17 @@ def render(
     if opts is None:
         opts = DisplayOptions()
     use_color = _use_color(opts.color)
-    # Four logical groups, one per rendered line:
+    # Five logical groups, one per rendered line:
     #   parts_dir  = cwd (full path, own line to avoid truncation)
     #   parts_id   = model + cc version
     #   parts_uso  = tokens + context window % + provider quota
     #   parts_custo = cost + duration + burn rate + verbose USD
+    #   parts_git  = branch + last commit (or greyed-out fallback)
     parts_id: list[str] = []
     parts_dir: list[str] = []
     parts_uso: list[str] = []
     parts_custo: list[str] = []
+    parts_git: list[str] = []
 
 
     if opts.show_model:
@@ -471,25 +481,46 @@ def render(
             # is detected upstream (fcc-claude vs vanilla claude) and
             # rendered as-is so the command works without manual editing.
             # When the id was inferred from a sibling JSONL (not the
-            # active window's exact session), we render the literal
-            # command (id without any suffix) PLUS a trailing
-            # ``(inferido)`` marker separated by a space. The split
-            # keeps copy-paste safe: terminal selection of just the id
-            # (e.g. double-click on the UUID) yields a clean command;
-            # the marker is metadata only.
+            # active window's exact session), we render the id in DIM to
+            # signal "this is a best-guess, copy-paste may land in the
+            # wrong window" — without a textual suffix that would get
+            # glued to the id on selection.
             label = f"{context.claude_launcher} --resume {context.session_id}"
-            if context.session_id_inferred:
-                label = f"{label} (inferido)"
-            parts_id.append(_colorize(f"{EMOJI_SESSION} {label}", DIM, use_color))
+            color = DIM if context.session_id_inferred else CYAN
+            parts_id.append(_colorize(f"{EMOJI_SESSION} {label}", color, use_color))
         if context.context_used_pct is not None:
             used = max(0, min(100, context.context_used_pct))
             remaining = 100 - used
             label = f"{EMOJI_CONTEXT} {used}% usado ({remaining}% livre)"
             color = RED if used >= 90 else YELLOW if used >= 70 else GRAY
             parts_uso.append(_colorize(label, color, use_color))
+        if context.git_branch is not None:
+            # Real git repo on the resolved cwd. Render the branch (cyan,
+            # the high-attention segment) followed by the short hash and
+            # the commit subject in dim/grey — those are reference info
+            # and should not compete with the model/quota lines.
+            git_segments = [
+                _colorize(f"{EMOJI_GIT} {context.git_branch}", CYAN, use_color)
+            ]
+            if context.git_commit_short:
+                git_segments.append(
+                    _colorize(context.git_commit_short, GRAY, use_color)
+                )
+            if context.git_commit_title:
+                git_segments.append(
+                    _colorize(context.git_commit_title, DIM, use_color)
+                )
+            parts_git.append(" • ".join(git_segments))
+        else:
+            # No repo (or git unavailable). Always show the 4th line so the
+            # bar's vertical rhythm is stable — greyed out to signal "n/a".
+            # If the user is in a non-git dir, the line is just visual filler.
+            parts_git.append(
+                _colorize(f"{EMOJI_GIT} [sem git]", GRAY, use_color)
+            )
 
     return _format_multiline(
-        [parts_dir, parts_id, parts_uso, parts_custo],
+        [parts_dir, parts_id, parts_uso, parts_custo, parts_git],
         use_color=use_color,
     )
 

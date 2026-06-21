@@ -33,6 +33,7 @@ sys.path.insert(0, str(THIS_DIR))
 
 from lib.display import ContextInfo, DisplayOptions, render  # noqa: E402
 from lib.fx import DEFAULT_TTL_SECONDS, resolve_rate  # noqa: E402
+from lib.git import resolve_git  # noqa: E402
 from lib.parser import (  # noqa: E402
     TokenTotals,
     _provider_from_model,
@@ -296,6 +297,9 @@ def _build_context_info(
     session_id: str | None = None,
     session_id_inferred: bool = False,
     claude_launcher: str = "claude",
+    git_branch: str | None = None,
+    git_commit_short: str | None = None,
+    git_commit_title: str | None = None,
 ) -> ContextInfo:
     """Build :class:`ContextInfo` from Claude Code's stdin payload.
 
@@ -345,6 +349,9 @@ def _build_context_info(
         session_id=session_id,
         session_id_inferred=session_id_inferred,
         claude_launcher=claude_launcher,
+        git_branch=git_branch,
+        git_commit_short=git_commit_short,
+        git_commit_title=git_commit_title,
     )
 
 
@@ -769,12 +776,21 @@ def main() -> int:
     price = _price_for_model(last_model, table)
     cost = compute_cost(totals, table, fx.rate)
 
+    # Resolve git metadata (branch + last commit) for the resolved cwd.
+    # Cheap when not a repo (~5 ms, one .git/ stat). When a repo, runs
+    # three short `git` subprocesses bounded by 1.5 s timeouts — never
+    # blocks the statusline on a hung git invocation.
+    git_info = resolve_git(project_dir or None)
+
     context = _build_context_info(
         stdin_hint,
         project_dir,
         session_id=resolved_session_id,
         session_id_inferred=session_id_inferred,
         claude_launcher=_detect_claude_launcher(),
+        git_branch=git_info.branch,
+        git_commit_short=git_info.commit_short,
+        git_commit_title=git_info.commit_title,
     )
     quota = None
     quota_provider_id = _active_quota_provider(

@@ -7,6 +7,15 @@ versions grouped by date.
 ## [Unreleased]
 
 ### Added
+- **Display: 4th line with git info (`🔀 branch • <hash> <commit-title>`).**
+  Always rendered. When the resolved cwd is not a git repo, the line shows
+  `🔀 [sem git]` (greyed out) so the bar's vertical rhythm stays stable. The
+  git lookup runs three short `git` subprocesses (`rev-parse --abbrev-ref HEAD`,
+  `rev-parse --short=7 HEAD`, `log -1 --pretty=%s`) bounded by a 1.5 s timeout
+  each, with `try/except (OSError, subprocess.TimeoutExpired)` falling back to
+  `None` per field. No new dependency — stdlib `subprocess` only. In a non-git
+  dir or when git is missing, the line is one grey segment and costs ~5 ms
+  (one `.git/` stat).
 - **Display: render the active session id on the statusline.** A new line is
   added between the model header and the usage row, formatted as
   `🔖 claude --resume <id>` so the user can copy/paste the command into
@@ -36,16 +45,18 @@ versions grouped by date.
   callers are unaffected.
 
 ### Fixed
-- **Display: replace the `~` suffix on the bookmark line with `(inferido)`.**
-  The previous suffix glued itself to the UUID when the user copied the
-  whole line, turning `fcc-claude --resume <id>` into `<id>~` and
-  silently routing the command to the resume-search screen instead of
-  the actual session. The new rendering keeps the command part clean
-  (`<launcher> --resume <id>`) and appends ` (inferido)` as a separate
-  token. Double-click on the UUID still selects only the id; copying
-  the whole line carries the marker along but the id stays in the
-  correct position, so the command keeps working even when the marker
-  is left in place.
+- **Display: signal `session_id_inferred` via colour, not suffix.** The
+  previous `(inferido)` text marker (commit `7025ab0`) was still
+  copy-pasteable as a tail token — a user could paste the whole line
+  into a terminal and the shell would ignore the marker, landing in
+  whichever session the (inferred) id happened to point at. The
+  marker is now rendered only as a colour hint: the `🔖` slot
+  keeps the exact `<launcher> --resume <id>` command, in `DIM` when
+  the id is inferred and `CYAN` when it is the active window's
+  exact session. Copy-paste still works (the colour is a terminal
+  attribute, not a character in the stream), but the visual
+  contrast signals "double-check before pasting" without polluting
+  the selectable text.
 - **Session: layered fallback for `CLAUDE_PROJECT_DIR` resolution.** Claude
   Code occasionally drops the `CLAUDE_PROJECT_DIR` env var on some
   refresh ticks — the symptom was a blank statusline slot or a stuck
