@@ -355,6 +355,26 @@ def _detect_claude_launcher() -> str:
     return "claude"
 
 
+def _router_url() -> str:
+    """Return the active session's ``ANTHROPIC_BASE_URL`` (router URL).
+
+    Returns the empty string when ``ANTHROPIC_BASE_URL`` is unset so the
+    renderer can distinguish "I checked and there is no router" (empty
+    string → "router desativado" segment) from "I don't have enough context
+    to render anything" (the caller never invokes us in that case). The
+    ``None`` case in :attr:`ContextInfo.router_url` is reserved for the
+    "no context at all" path; the renderer treats ``""`` as the legitimate
+    "vanilla claude" state and shows the disabled-router label.
+
+    The URL is the same string the launcher passed to Claude Code via env,
+    so the user can correlate it with the fcc-server console.
+
+    Cheap read from env. No subprocess. No I/O. Called on every refresh
+    tick (every 5 s) along with the rest of the pipeline — has to be < 1 ms.
+    """
+    return os.environ.get("ANTHROPIC_BASE_URL", "").strip()
+
+
 def _stdin_cwd(stdin_hint: dict[str, Any], fallback: str | None) -> str | None:
     """Extract the working directory from Claude Code's stdin payload.
 
@@ -388,6 +408,7 @@ def _build_context_info(
     git_dirty_added: int = 0,
     git_dirty_deleted: int = 0,
     git_dirty_level: str = "clean",
+    router_url: str | None = None,
 ) -> ContextInfo:
     """Build :class:`ContextInfo` from Claude Code's stdin payload.
 
@@ -436,6 +457,7 @@ def _build_context_info(
         git_dirty_lines_added=git_dirty_added,
         git_dirty_lines_deleted=git_dirty_deleted,
         git_dirty_level=git_dirty_level,
+        router_url=router_url,
     )
 
 
@@ -937,6 +959,7 @@ def _main_impl(started: float) -> int:
         git_dirty_added=git_info.dirty_added,
         git_dirty_deleted=git_info.dirty_deleted,
         git_dirty_level=git_dirty_level,
+        router_url=_router_url(),
     )
     quota = None
     quota_provider_id = _active_quota_provider(

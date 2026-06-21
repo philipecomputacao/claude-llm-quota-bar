@@ -48,6 +48,11 @@ class DisplayOptions:
     show_flags: bool = True
     show_both_currencies: bool = True
     show_provider_quota: bool = True
+    # Render the 🌐 router segment on the cost line. When the active session
+    # is hosted by ``fcc-claude`` (ANTHROPIC_BASE_URL points to a local
+    # proxy), shows the URL in green. When vanilla ``claude``, shows
+    # "router desativado" in grey. Override in statusline.env.json.
+    show_router: bool = True
     quota_warn_pct: float = 60.0
     quota_alert_pct: float = 85.0
     # Git working-tree dirtyness thresholds (lines added+deleted vs HEAD).
@@ -104,6 +109,15 @@ class ContextInfo:
     # "clean" / "warn" / "alert" — chosen in ``session_tokens.py:main()``
     # from ``git_dirty_warn_lines`` / ``git_dirty_alert_lines`` thresholds.
     git_dirty_level: str = "clean"
+    # ``ANTHROPIC_BASE_URL`` of the active session, when set. The renderer
+    # uses this to decide between two visual states on the cost line:
+    # - When set AND the host is localhost/127.0.0.1 (i.e. the session is
+    #   routed through a local proxy like ``fcc-claude``/``fcc-server``),
+    #   shows ``🌐 <url>`` in green.
+    # - When unset OR pointing at the official Anthropic API, shows
+    #   ``🌐 router desativado`` in grey.
+    # Populated upstream by ``session_tokens.py::_router_url``.
+    router_url: str | None = None
 
 
 # Emoji markers — kept for parity with the legacy ``~/.claude/statusline.sh``
@@ -116,6 +130,7 @@ EMOJI_CALENDAR = "\U0001F4C5" # 📅
 EMOJI_TIMER = "\u231B"        # ⌛ (session duration; avoids colliding with ⏱ quota)
 EMOJI_SESSION = "\U0001F516"  # 🔖 (session id bookmark)
 EMOJI_GIT = "\U0001F500"       # 🔀 (branch / last commit line)
+EMOJI_ROUTER = "\U0001F310"    # 🌐 (proxy / router URL)
 
 # Burn-rate visual states. The emoji tells the rate at a glance even when the
 # terminal does not render ANSI colors (e.g. plain logs, some macOS themes).
@@ -344,6 +359,59 @@ def _render_quota_segment(
     return _colorize(label, color, use_color)
 
 
+# Hosts that we treat as "local proxy / router active". When ANTHROPIC_BASE_URL
+# matches one of these (case-insensitive substring match), the router segment
+# is rendered in green with the full URL. Anything else — unset, official
+# Anthropic API, a custom cloud proxy — renders "router desativado" in grey.
+_LOCAL_PROXY_HOST_MARKERS = (
+    "localhost",
+    "127.0.0.1",
+    "::1",
+)
+
+
+def _is_local_proxy_url(url: str | None) -> bool:
+    """Return True when ``url`` points at a local proxy.
+
+    Used to decide the colour of the 🌐 router segment. Mirrors the same
+    heuristic as ``session_tokens.py::_detect_claude_launcher`` so the
+    statusline colour matches the bookmark command (``fcc-claude --resume``
+    vs ``claude --resume``) — they describe the same fact about the session.
+    """
+    if not url:
+        return False
+    lowered = url.strip().lower()
+    return any(marker in lowered for marker in _LOCAL_PROXY_HOST_MARKERS)
+
+
+def _render_router_segment(
+    router_url: str | None, use_color: bool
+) -> str | None:
+    """Build the 🌐 router segment for the cost line.
+
+    Returns ``None`` only when the caller passes ``None`` to mean "no
+    context at all" (e.g. before the session was created). An empty
+    ``router_url`` (``""``) is treated as "router desativado" because the
+    user opted in to the segment via ``show_router: true`` and expects to
+    see *something* — they want to know the session is NOT being routed
+    through a local proxy. Distinguishing the two cases keeps callers
+    honest: ``None`` = "I don't know", ``""`` = "I checked and it's empty".
+
+    Visual states:
+
+    - ``🌐 <url>`` (green) when ANTHROPIC_BASE_URL points at a local proxy
+      like ``http://localhost:8082`` (the typical ``fcc-claude`` setup).
+    - ``🌐 router desativado`` (grey) when ANTHROPIC_BASE_URL is unset or
+      points at the official Anthropic API. Fixed Portuguese phrase keeps
+      the segment short and predictable even when the URL is long.
+    """
+    if router_url is None:
+        return None
+    if router_url and _is_local_proxy_url(router_url):
+        return _colorize(f"{EMOJI_ROUTER} {router_url}", GREEN, use_color)
+    return _colorize(f"{EMOJI_ROUTER} router desativado", GRAY, use_color)
+
+
 def _burn_rate_visual(rate: float, opts: DisplayOptions) -> tuple[str, str]:
     """Return ``(color, emoji)`` for the current burn rate.
 
@@ -466,6 +534,15 @@ def render(
         color, emoji = _burn_rate_visual(burn_rate, opts)
         rate_str = f"{emoji} {int(burn_rate)}t/m"
         parts_custo.append(_colorize(rate_str, color, use_color))
+
+    # Router segment — shows 🌐 on the cost line so the user knows whether
+    # the active session is going through a local proxy (fcc-claude / fcc-server)
+    # or straight to the official Anthropic API. Green = local proxy active,
+    # grey = vanilla claude. Suppressed by ``show_router: false`` in the env.
+    if opts.show_router and context is not None:
+        router_segment = _render_router_segment(context.router_url, use_color)
+        if router_segment:
+            parts_custo.append(router_segment)
 
     if opts.verbose and price is not None:
         if not opts.show_both_currencies:

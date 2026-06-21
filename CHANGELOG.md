@@ -18,6 +18,21 @@ versions grouped by date.
   more poisoned values is a one-line change.
 
 ### Added
+- **Display: 🌐 router segment on the cost line.** A new emoji marker
+  (`🌐`, U+1F310) is rendered at the end of the cost line so the user
+  can see at a glance whether the active session is going through a
+  local proxy (like `fcc-claude`/`fcc-server`) or straight to the
+  official Anthropic API. The URL is read from `ANTHROPIC_BASE_URL`:
+  - **Green** when the host is `localhost` / `127.0.0.1` / `::1` — the
+    typical `fcc-claude` setup. Shows the full URL (e.g.
+    `🌐 http://127.0.0.1:8082`).
+  - **Grey** (`router desativado`) when unset or pointing at the
+    official Anthropic API. Toggled via `show_router: true/false` in
+    `statusline.env.json` (default: on). Mirrors the same heuristic as
+    the bookmark command (`fcc-claude --resume` vs `claude --resume`)
+    so the two signals stay consistent.
+
+### Added
 - **Display: 4th line with git info (`🔀 branch • <hash> <commit-title>`).**
   Always rendered. When the resolved cwd is not a git repo, the line shows
   `🔀 [sem git]` (greyed out) so the bar's vertical rhythm stays stable. The
