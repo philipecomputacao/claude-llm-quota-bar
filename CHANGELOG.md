@@ -23,9 +23,14 @@ versions grouped by date.
   can see at a glance whether the active session is going through a
   local proxy (like `fcc-claude`/`fcc-server`) or straight to the
   official Anthropic API. The URL is read from `ANTHROPIC_BASE_URL`:
-  - **Green** when the host is `localhost` / `127.0.0.1` / `::1` — the
-    typical `fcc-claude` setup AND the proxy answered the last health
-    probe (`"ok"`).
+  - **Soft green** (`DIM + GREEN`, i.e. `\x1b[2;32m`) when the host is
+    `localhost` / `127.0.0.1` / `::1` — the typical `fcc-claude` setup
+    AND the proxy answered the last health probe (`"ok"`). The dim
+    attribute keeps the segment readable as "ambient ok" without
+    competing with the bright green used elsewhere for cache hit
+    rates and successful cost totals. Also reuses the new
+    `GREEN_SOFT` constant for the `cache:75%` segment so the bar
+    uses one consistent "calm ok" green throughout.
   - **Red** when the URL points at a local proxy BUT the health probe
     reported `"down"` (TCP refused, timeout, etc.). The user can tell
     at a glance that the proxy is dead even though the URL is still

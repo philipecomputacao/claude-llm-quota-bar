@@ -33,6 +33,13 @@ MAGENTA = "\x1b[35m"
 BLUE = "\x1b[34m"
 GRAY = "\x1b[90m"
 
+#: ``DIM + GREEN`` — softer green used for ambient state markers
+#: (router proxy alive, cache hit rate, …) that should feel "ok" without
+#: competing with alert colours. Matches the existing ``DIM + GREEN``
+#: used by the cache hit-rate segment on the token line, so the whole
+#: bar uses one consistent "calm ok" green instead of mixing two greens.
+GREEN_SOFT = DIM + GREEN
+
 
 @dataclass(frozen=True, slots=True)
 class DisplayOptions:
@@ -418,14 +425,17 @@ def _render_router_segment(
 
     Visual states:
 
-    - ``🌐 <url>`` (green) when ANTHROPIC_BASE_URL points at a local proxy
-      like ``http://localhost:8082`` (the typical ``fcc-claude`` setup)
-      AND the proxy answered the last health probe (``"ok"``).
+    - ``🌐 <url>`` (soft green) when ANTHROPIC_BASE_URL points at a local
+      proxy like ``http://localhost:8082`` (the typical ``fcc-claude``
+      setup) AND the proxy answered the last health probe (``"ok"``).
+      Uses ``GREEN_SOFT`` (``DIM + GREEN``) instead of plain ``GREEN``
+      so the segment reads as "ambient ok" rather than competing with
+      the bright-green success colours elsewhere on the bar.
     - ``🌐 <url>`` (red) when the URL points at a local proxy BUT the
       health probe reported ``"down"`` (TCP refused, timeout, etc.). The
       user can tell at a glance that the proxy is dead even though the
       URL is still configured.
-    - ``🌐 <url>`` (green, default) when the health verdict is
+    - ``🌐 <url>`` (soft green, default) when the health verdict is
       ``"unknown"`` — we couldn't reach a verdict (SSL error, etc.)
       but the URL is configured. We default to green so we don't
       false-alarm the user on a transient misconfiguration.
@@ -438,7 +448,7 @@ def _render_router_segment(
     if router_url and _is_local_proxy_url(router_url):
         if router_health == "down":
             return _colorize(f"{EMOJI_ROUTER} {router_url}", RED, use_color)
-        return _colorize(f"{EMOJI_ROUTER} {router_url}", GREEN, use_color)
+        return _colorize(f"{EMOJI_ROUTER} {router_url}", GREEN_SOFT, use_color)
     return _colorize(f"{EMOJI_ROUTER} router desativado", GRAY, use_color)
 
 
@@ -588,7 +598,7 @@ def render(
             pct = cache_total / max(totals.total_tokens, 1) * 100
             if opts.show_cache_pct and pct >= 50:
                 parts_custo.append(
-                    _colorize(f"cache:{pct:.0f}%", DIM + GREEN, use_color)
+                    _colorize(f"cache:{pct:.0f}%", GREEN_SOFT, use_color)
                 )
 
     if context is not None:
