@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,9 +36,9 @@ from lib.parser import (  # noqa: E402
     TokenTotals,
     _provider_from_model,
     _strip_gateway_prefix,
-    locate_latest_log,
     locate_session_log,
     parse_first_response_model,
+    project_dir_to_hash,
 )
 from lib.provider_quota import fetch_quota  # noqa: E402
 from lib.pricing import (  # noqa: E402
@@ -49,6 +50,23 @@ from lib.pricing import (  # noqa: E402
 
 DEFAULT_CLAUDE_DIR = Path.home() / ".claude"
 PLACEHOLDER = "[statusline: inicializando]"
+NO_SESSION_PLACEHOLDER = "[sem sessão]"
+
+# When set, the statusline writes a diagnostic dump to
+# ``~/.cache/claude-llm-quota-bar/debug.json`` on every invocation. Useful
+# for investigating "model from another window is flickering" — the dump
+# captures the env vars Claude Code exported, the JSONL resolution result,
+# and the resolved totals. Disabled by default.
+DEBUG_ENV = "CLAUDE_LLM_QUOTA_BAR_DEBUG"
+DEBUG_CACHE_FILENAME = "debug.json"
+DEBUG_MAX_BYTES = 64 * 1024  # rotate if larger than this
+
+# How recently a JSONL must have been modified for the ``locate_latest_log``
+# fallback to be considered safe. A tick that lost its session id will only
+# pick up a sibling window's JSONL if that sibling was touched within this
+# window — older JSONLs are treated as "not mine" and the placeholder is
+# shown instead.
+LATEST_LOG_MAX_AGE_SECONDS = 300  # 5 minutes
 
 
 def _load_display_options(config_path: Path) -> DisplayOptions:
@@ -78,16 +96,109 @@ def _read_stdin() -> dict[str, Any]:
         return {}
 
 
-def _safe_log_path(claude_dir: Path, project_dir: str, session_id: str) -> tuple[Path | None, str | None]:
-    """Locate the JSONL path for the given session, falling back if needed."""
-    path = locate_session_log(claude_dir, project_dir, session_id)
-    if path is not None:
-        return path, None
-    fallback = locate_latest_log(claude_dir, project_dir)
-    if fallback is None:
-        return None, None
-    fallback_model = parse_first_response_model(fallback)
-    return fallback, fallback_model
+def _debug_dump(payload: dict[str, Any]) -> None:
+    """Append a single-line JSON entry to the debug cache file.
+
+    Best-effort: any failure (missing cache dir, permission error) is
+    swallowed silently so the debug mode never breaks the statusline. The
+    file is rotated when it exceeds :data:`DEBUG_MAX_BYTES`. Captures only
+    public signal — env vars, JSONL resolution result, totals — never stdin
+    contents or anything that could contain user data.
+    """
+    if not os.environ.get(DEBUG_ENV):
+        return
+    try:
+        cache_dir = DEFAULT_CLAUDE_DIR.parent / ".cache" / "claude-llm-quota-bar"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path = cache_dir / DEBUG_CACHE_FILENAME
+        line = json.dumps(payload, ensure_ascii=False) + "\n"
+        # Rotate if too large.
+        try:
+            if path.exists() and path.stat().st_size > DEBUG_MAX_BYTES:
+                path.write_text(line, encoding="utf-8")
+                return
+        except OSError:
+            pass
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    except OSError:
+        return
+
+
+def _debug_env_summary() -> dict[str, str | None]:
+    """Return only the Claude Code contract env vars (no other env, no secrets)."""
+    return {
+        "CLAUDE_PROJECT_DIR": os.environ.get("CLAUDE_PROJECT_DIR"),
+        "CLAUDE_SESSION_ID": os.environ.get("CLAUDE_SESSION_ID"),
+        "CLAUDE_MODEL": os.environ.get("CLAUDE_MODEL"),
+    }
+
+
+def _list_project_jsonls(claude_dir: Path, project_dir: str) -> list[Path]:
+    """List JSONLs in the project directory, sorted by mtime ascending."""
+    if not project_dir:
+        return []
+    project_hash = project_dir_to_hash(project_dir)
+    project_path = claude_dir / "projects" / project_hash
+    if not project_path.exists():
+        return []
+    return sorted(project_path.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+
+
+def _safe_log_path(
+    claude_dir: Path,
+    project_dir: str,
+    session_id: str,
+) -> tuple[Path | None, str | None, str]:
+    """Locate the JSONL path for the given session.
+
+    Resolution order:
+
+    1. **Exact match** — ``locate_session_log(claude_dir, project_dir,
+       session_id)``. Returns the path if found.
+    2. **Recent-only fallback** — when no exact match is found AND
+       ``session_id`` is non-empty (so a tick that simply lost its session
+       id is still served): use ``locate_latest_log`` ONLY if exactly one
+       JSONL exists in the project dir (obvious single-session case) OR if
+       the most-recent JSONL was modified within
+       :data:`LATEST_LOG_MAX_AGE_SECONDS` and no other JSONL is more recent.
+       This is a safety net for the rare Claude Code tick that drops the
+       session id; it never picks a stale JSONL from a sibling window.
+    3. Otherwise return ``(None, None, "no_session")`` and let the caller
+       render :data:`NO_SESSION_PLACEHOLDER`.
+
+    The third return value is a short tag describing which path was taken,
+    for the debug dump.
+    """
+    if session_id:
+        path = locate_session_log(claude_dir, project_dir, session_id)
+        if path is not None:
+            return path, None, "exact"
+    # No exact match (or no session id). Try the recent-only fallback.
+    jsonls = _list_project_jsonls(claude_dir, project_dir)
+    if not jsonls:
+        return None, None, "no_jsonls"
+    if len(jsonls) == 1:
+        # Obvious case: this is the only session in the project dir.
+        fallback = jsonls[-1]
+        return fallback, parse_first_response_model(fallback), "single_jsonl"
+    latest = jsonls[-1]
+    try:
+        age = time.time() - latest.stat().st_mtime
+    except OSError:
+        return None, None, "stat_failed"
+    if age > LATEST_LOG_MAX_AGE_SECONDS:
+        # The latest JSONL is from a long-closed session — picking it would
+        # surface a sibling window's stale data. Refuse.
+        return None, None, "stale_latest"
+    # Multiple JSONLs but the latest is recent AND we have no session id
+    # to disambiguate. Be conservative: if there are 2+ and the latest is
+    # recent, we can't tell which one is ours — refuse and let the caller
+    # show the placeholder. The "single JSONL" case above already covers
+    # the obvious one-window scenario.
+    if len(jsonls) > 1:
+        return None, None, "ambiguous"
+    return latest, parse_first_response_model(latest), "fallback"
 
 
 # Statusline parses the JSONL on every refresh. To avoid re-reading a
@@ -393,32 +504,46 @@ def main() -> int:
     if std_model is None:
         std_model = os.environ.get("CLAUDE_MODEL")
 
-    log_path, fallback_model = _safe_log_path(claude_dir, project_dir, session_id)
+    log_path, fallback_model, resolution_tag = _safe_log_path(
+        claude_dir, project_dir, session_id
+    )
     if log_path is None:
-        price = _price_for_model(std_model, table)
-        totals = TokenTotals()
-        cost = CostBreakdown(fx_to_brl=fx.rate)
-    else:
-        from lib.parser import aggregate_session
+        _debug_dump({
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "env": _debug_env_summary(),
+            "resolution": resolution_tag,
+            "log_path": None,
+            "placeholder": NO_SESSION_PLACEHOLDER,
+        })
+        print(NO_SESSION_PLACEHOLDER, flush=True)
+        return 0
+    _debug_dump({
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "env": _debug_env_summary(),
+        "resolution": resolution_tag,
+        "log_path": str(log_path),
+        "log_size": log_path.stat().st_size if log_path.exists() else 0,
+    })
+    from lib.parser import aggregate_session
 
-        totals = _aggregate_cached(log_path, session_id or "")
-        last_model = totals.last_model or fallback_model or std_model
-        if fallback_model and totals.request_count == 0:
-            last_model = fallback_model
-        if last_model and last_model != totals.last_model:
-            totals = TokenTotals(
-                input_tokens=totals.input_tokens,
-                output_tokens=totals.output_tokens,
-                cache_creation_tokens=totals.cache_creation_tokens,
-                cache_read_tokens=totals.cache_read_tokens,
-                request_count=totals.request_count,
-                first_timestamp=totals.first_timestamp,
-                last_timestamp=totals.last_timestamp,
-                last_model=last_model,
-                last_provider=_provider_from_model(last_model),
-            )
-        price = _price_for_model(last_model, table)
-        cost = compute_cost(totals, table, fx.rate)
+    totals = _aggregate_cached(log_path, session_id or "")
+    last_model = totals.last_model or fallback_model or std_model
+    if fallback_model and totals.request_count == 0:
+        last_model = fallback_model
+    if last_model and last_model != totals.last_model:
+        totals = TokenTotals(
+            input_tokens=totals.input_tokens,
+            output_tokens=totals.output_tokens,
+            cache_creation_tokens=totals.cache_creation_tokens,
+            cache_read_tokens=totals.cache_read_tokens,
+            request_count=totals.request_count,
+            first_timestamp=totals.first_timestamp,
+            last_timestamp=totals.last_timestamp,
+            last_model=last_model,
+            last_provider=_provider_from_model(last_model),
+        )
+    price = _price_for_model(last_model, table)
+    cost = compute_cost(totals, table, fx.rate)
 
     context = _build_context_info(stdin_hint, project_dir)
     quota = None

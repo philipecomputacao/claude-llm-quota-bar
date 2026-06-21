@@ -32,6 +32,30 @@ versions grouped by date.
   in `lib/pricing.py:_entry_to_price` (data-layer fix), so every consumer of
   `ModelPrice.display` sees a clean label. The `pricing.json` file is
   untouched; the strip is applied at load time.
+- **Session isolation: keep the `locate_latest_log` fallback only when it
+  is safe.** When the exact session id resolution fails, the previous
+  behaviour would pick the most-recent JSONL in the project directory —
+  unsafe when two Claude Code windows share the same cwd (a tick on
+  window B with no session id could render A's model). The new
+  `_safe_log_path` keeps the fallback only when (a) the project dir
+  contains exactly one JSONL (obvious single-session case), OR (b) the
+  most-recent JSONL was modified within the last 5 minutes
+  (`LATEST_LOG_MAX_AGE_SECONDS`) AND no other JSONL is more recent. When
+  both checks fail — i.e. multiple JSONLs in the project dir, latest from
+  a sibling window — the `[sem sessão]` placeholder is shown instead of
+  phantom data. The resolution path taken is returned as a third tuple
+  element (`exact` / `single_jsonl` / `stale_latest` / `ambiguous` /
+  `no_jsonls`) and is captured in the debug dump.
+- **Debug: opt-in diagnostic dump via `CLAUDE_LLM_QUOTA_BAR_DEBUG=1`.**
+  When this env var is set, every statusline invocation appends a
+  one-line JSON entry to `~/.cache/claude-llm-quota-bar/debug.json` (with
+  rotation at 64 KB). Each entry captures the Claude Code contract env
+  vars (`CLAUDE_PROJECT_DIR` / `CLAUDE_SESSION_ID` / `CLAUDE_MODEL`),
+  the JSONL resolution path taken, and the resolved log path + size.
+  Stdin content and any other env are **not** captured — only the public
+  contract. Useful for diagnosing "model from another window flickering"
+  or "session id not being exported" — set the env var, reproduce the
+  issue, then read the debug file.
 
 ### Planned
 - (no items yet)
