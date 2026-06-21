@@ -33,6 +33,16 @@
 - 🔀 **Git-aware** — the 5th line shows the current branch and the last
   commit. The branch colour reflects working-tree dirtyness vs HEAD: cyan
   when clean, yellow at 50+ lines pending, red at 300+.
+- 🌐 **Router-aware** — the 🌐 segment on the cost line shows whether the
+  active session is going through `fcc-claude`'s local proxy and whether
+  the proxy is actually responding. Soft green when alive, red when the
+  proxy crashed, grey `router desativado` for vanilla Claude Code. Probes
+  every 45s (configurable) so the verdict stays fresh without hammering
+  the proxy.
+- 🛡️ **Resilient by default** — every render is wrapped in a try/except so
+  a stray crash never blanks the statusline. The bar shows
+  `[sem sessão] (erro: <Type>)` instead. Git subprocesses run under a 3.5s
+  cumulative budget so a slow repo can't blow past the 5s refresh tick.
 - 🔌 **402 models** with auto-pricing from upstream `pricing.json`
   (Anthropic, OpenAI, Google, Mistral, DeepSeek + 18+ gateway pass-throughs).
 - 🪟 **Drop-in statusline script**: invoked by Claude Code as a Python
@@ -51,7 +61,7 @@ Native Claude Code session (no API key needed for the quota segment):
 📁 ~/src/my-project
 [claude-sonnet-4-5] • 📟 v2.1.170 • 🔖 claude --resume f47ac10b-...-4aae
 ⬆1.0M ⬇48k ↻R2.8M • 🧠 12% usado (88% livre)
-🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
+🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m • 🌐 http://127.0.0.1:8082
 🔀 main • 1a2b3c4 • fix: correct off-by-one in user count
 ```
 
@@ -62,7 +72,7 @@ Routed through a third-party provider with a quota adapter enabled
 📁 ~/src/my-project
 [MiniMax-M3·minimax] • 📟 v2.1.170 • 🔖 claude --resume f47ac10b-...-4aae
 ⬆1.0M ⬇48k ↻R2.8M • ⏱ 40% usado (60% livre) (reset 2h48m) • 🧠 12% usado (88% livre)
-🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m
+🇧🇷 R$1.61 🇺🇸 $0.312 • ⌛ 25m • ⚡ 42951t/m • 🌐 http://127.0.0.1:8082
 🔀 feature/quota • 9c8b7a6 • feat(quota): add OpenAI credit grants adapter • +153/-22
 ```
 
@@ -79,6 +89,9 @@ Routed through a third-party provider with a quota adapter enabled
 | `⌛ 25m` | Wall-clock session duration |
 | `⚡ 42951t/m` | Burn rate with 🧊 / ⚡ / 🔥 emoji by tier |
 | `🔀 branch • hash • title • +N/-M` | Git metadata for the project cwd. <br>Branch colour reflects **working-tree dirtyness** vs HEAD: <br>🟢 cyan (0 lines) · 🟡 yellow (50+ lines) · 🔴 red (300+ lines). <br>`+N/-M` suffix only appears when dirty. <br>Greyed-out `🔀 [sem git]` when not a repo — keeps vertical rhythm stable. |
+| `🌐 <url>` (router alive) | Local proxy in use — `ANTHROPIC_BASE_URL` points at a local host **and** the proxy answered the last health probe. Soft green (`DIM + GREEN`). |
+| `🌐 <url>` (router down)  | Same URL but the health probe reported `"down"` (TCP refused / timeout). Red — restart `fcc-server`. |
+| `🌐 router desativado`    | Native Claude Code or third-party API — no local proxy configured. Grey. |
 
 All segments are independently toggleable. All thresholds are configurable.
 
@@ -115,6 +128,7 @@ with first-class multi-provider quota tracking. See
 - [Providers supported](#providers-supported)
 - [Quota adapters](#quota-adapters)
 - [Colour rules](#colour-rules)
+- [Router segment (🌐)](#router-segment-)
 - [Configuration](#configuration)
 - [How it works](#how-it-works)
 - [Adding a new provider](#adding-a-new-provider)
@@ -335,6 +349,63 @@ sending the bar to a log file.
 
 ---
 
+## Router segment (🌐)
+
+A 🌐 marker is rendered at the end of the cost line so the user can
+tell at a glance whether the active session is going through a local
+proxy (like `fcc-claude`/`fcc-server`) or straight to the official
+Anthropic API. The URL is read from `ANTHROPIC_BASE_URL` on every tick
+(5s) — no caching, no daemon, no extra subprocess.
+
+### Three visual states
+
+| State | Colour | Trigger |
+|---|---|---|
+| `🌐 http://127.0.0.1:<port>` | Soft green (`DIM + GREEN`) | `ANTHROPIC_BASE_URL` points at a local host AND the proxy answered the last health probe (`"ok"`). |
+| `🌐 http://127.0.0.1:<port>` | Red | Same URL but the health probe reported `"down"` (TCP refused, timeout). |
+| `🌐 router desativado` | Grey | `ANTHROPIC_BASE_URL` unset or points at `api.anthropic.com` — vanilla Claude Code. |
+
+The health probe is **skipped entirely** for non-local URLs (we don't
+ping `api.anthropic.com` on every tick) and when `show_router` is
+disabled — both cases return `"ok"` so the segment keeps its default
+colour without a network round-trip.
+
+### Health probe (HEAD)
+
+The verdict comes from `lib/router_health.py`, a single HEAD request
+(`urllib.request`, stdlib only) to `ANTHROPIC_BASE_URL` with:
+
+- **1.0 s timeout** — long enough to absorb a slow TCP handshake, short
+  enough to keep the statusline responsive even when the proxy is
+  frozen.
+- **45 s in-memory cache** — at the default 5 s refresh tick, the user
+  sees at most one stale verdict between probes. Tunable via
+  `router_health_ttl_seconds` in `statusline.env.json` (set to `0` to
+  probe every tick).
+- **Thread-safe** — a module-level lock serialises the cache-miss path
+  so bursty ticks can't fire redundant HEADs.
+- **Verdicts** — `ok` (any HTTP response, including 404 on `/` — the
+  typical reply from a reverse proxy that only forwards specific
+  paths), `down` (TCP refused / timeout / DNS failure), `unknown`
+  (SSL error etc., falls back to the default colour so we don't
+  false-alarm).
+
+The check costs ~12 ms on a cache miss and <1 ms on a cache hit. A
+frozen proxy adds 1.0 s to a single tick per 45-second window — well
+within the 5 s refresh budget.
+
+### Config
+
+```json
+{
+  "show_router":              true,  // render the segment at all
+  "show_router_health":       true,  // run the HEAD probe
+  "router_health_ttl_seconds": 45    // cache window for the verdict
+}
+```
+
+---
+
 ## Configuration
 
 The bundled `statusline.env.json` documents every option. To override, copy it to
@@ -355,6 +426,9 @@ fall back to the defaults in `lib/display.py::DisplayOptions`.
   "show_flags":         true,
   "show_both_currencies": true, // show 🇧🇷 + 🇺🇸 side by side
   "show_provider_quota":   true, // ⏱ live quota segment
+  "show_router":            true, // 🌐 router segment on cost line
+  "show_router_health":     true, // HEAD probe for local proxy health
+  "router_health_ttl_seconds": 45, // cache window for the verdict (0 = every tick)
 
   "quota_warn_pct":  60,        // yellow at 60% quota used
   "quota_alert_pct": 85,        // red    at 85% quota used
@@ -424,6 +498,8 @@ and falls back to a static 5.20 if the API is unreachable.
        │                              ▼                       ▼
        │                      pricing.json             lib/provider_quota.py
        │                      (402 models)            (6 quota adapters)
+       │                                          lib/router_health.py
+       │                                          (HEAD probe, 45s cache)
        │                              │                       │
        │                              └───────────┬───────────┘
        │                                          ▼
@@ -451,11 +527,16 @@ default 5 s — and immediately after each model response):
    silently to `None` / `0`.
 5. **Pricing lookup** — resolves the model id (with gateway-prefix stripping) to a
    `ModelPrice` entry, computes the cost in USD, converts to BRL using the cached FX
-6. **Quota lookup** — for the active provider, calls the matching `QuotaProvider.fetch()`
+6. **Router segment** — read `ANTHROPIC_BASE_URL` (cheap env lookup, no I/O). If it
+   points at a local host, call `lib/router_health.py:check_router` for a verdict
+   (HEAD probe with 1.0 s timeout, 45 s in-memory cache). The result lands as the
+   🌐 segment at the end of the cost line. Skipped entirely for non-local URLs and
+   when `show_router` is disabled.
+7. **Quota lookup** — for the active provider, calls the matching `QuotaProvider.fetch()`
    in `lib/provider_quota.py`. Each adapter handles its own auth, retry, and caching
-7. **Render** — `render()` in `lib/display.py` builds 5 lines:
+8. **Render** — `render()` in `lib/display.py` builds 5 lines:
    `📁 cwd` · `[model·provider] 📟 version 🔖 bookmark` ·
-   `⬆⬇↻ ⏱ quota 🧠 context` · `🇧🇷 R$ 🇺🇸 $ ⌛ duration ⚡ burn` ·
+   `⬆⬇↻ ⏱ quota 🧠 context` · `🇧🇷 R$ 🇺🇸 $ ⌛ duration ⚡ burn 🌐 router` ·
    `🔀 branch • hash • title • +N/-M`
 
 The script is **stateless** — every render reads from disk. This makes it safe to
@@ -687,7 +768,8 @@ CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=dev-test \
 │   ├── pricing.py           # pricing.json loader + cost compute
 │   ├── provider_quota.py    # 6 QuotaProvider adapters + registry
 │   ├── fx.py                # BRL/USD FX rate cache
-│   └── git.py               # git metadata resolver (branch, commit, dirtyness)
+│   ├── git.py               # git metadata resolver (branch, commit, dirtyness)
+│   └── router_health.py     # HEAD-based local proxy health probe (1.0s timeout, 45s cache)
 ├── scripts/
 │   └── new_window.sh        # macOS helper: open a new Terminal that resumes a session
 ├── pricing.json             # 402 models, 5 direct providers
