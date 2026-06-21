@@ -521,7 +521,10 @@ def main() -> int:
             "log_path": None,
             "placeholder": NO_SESSION_PLACEHOLDER,
         }, force=True)
-        print(NO_SESSION_PLACEHOLDER, flush=True)
+        # Render the reason inline so the user can diagnose from the
+        # statusline itself (no need to cat the debug file). Cheap — the
+        # tag is a short string set by _safe_log_path.
+        print(f"{NO_SESSION_PLACEHOLDER} · {resolution_tag}", flush=True)
         return 0
     _debug_dump({
         "ts": datetime.now().isoformat(timespec="seconds"),
