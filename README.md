@@ -375,6 +375,39 @@ $EDITOR ~/.claude/statusline.env.json
 
 See [Configuration](#configuration) for the full list of options.
 
+### 5. Resuming the session in another window
+
+The bar's second line always shows a copy-pasteable bookmark:
+
+```
+🔖 fcc-claude --resume 521cd005-a264-4218-8fd8-05b9a2062e7c
+```
+
+Copy that, open a new terminal, and **always `cd` into the project directory
+first** before resuming. The session's conversation history is restored from
+the local proxy's store, but the **cwd is inherited from the shell** — so
+running `fcc-claude --resume <id>` straight from `~` opens the new window in
+your home directory, and the statusline renders without a folder (📁) or git
+segment (🔀) even though the session is alive.
+
+The correct pattern is:
+
+```bash
+cd /path/to/your/project   # the cwd the original session was running in
+fcc-claude --resume <id>   # paste the bookmark from the bar
+```
+
+The `fcc-claude` wrapper is provided by the sister project
+[`free-claude-code-plus`](https://github.com/philipecomputacao/free-claude-code-plus)
+— it sets `ANTHROPIC_BASE_URL` to the local proxy and re-execs the Claude Code
+CLI. If you don't use that wrapper, substitute `claude` for `fcc-claude` (the
+bar auto-detects which launcher is active and renders the right command).
+
+If the bookmark shows `🔖 <launcher> --resume <id>` in **DIM** (grey) instead
+of CYAN, the id was inferred from a sibling window's JSONL via the fallback
+(see [How it works](#how-it-works)). The bookmark still works, but copy-paste
+may resume a different session than the one you're looking at.
+
 ---
 
 ## Providers supported
@@ -846,6 +879,27 @@ CLAUDE_PROJECT_DIR="$PWD" CLAUDE_SESSION_ID=test \
 ```
 
 Then trigger any prompt in Claude Code and check the bar.
+
+### Bar shows no folder / no git after resuming in another window
+
+The cwd (📁 line) and git (🔀 line) are empty or grey. Almost always this
+means the new window was opened in `$HOME` instead of the original project
+directory — the session resumed correctly, but Claude Code's working tree
+points at the shell's default cwd.
+
+Fix:
+
+```bash
+# 1. Exit the new Claude Code window
+exit
+# 2. cd into the project the original session was running in
+cd /path/to/your/project
+# 3. Re-launch with the bookmark from the bar
+fcc-claude --resume <id>
+```
+
+See [Quick start → Resuming the session in another window](#5-resuming-the-session-in-another-window)
+for the full rationale.
 
 ### `ANTHROPIC_API_KEY` doesn't enable the `⏱` segment
 

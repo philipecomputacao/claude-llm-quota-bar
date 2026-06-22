@@ -6,6 +6,15 @@ versions grouped by date.
 
 ## [Unreleased]
 
+### Added
+- **Docs: workflow for resuming a session in another window.** New README
+  section § "5. Resuming the session in another window" and a matching
+  Troubleshooting entry ("Bar shows no folder / no git after resuming in
+  another window"). Documents the recommended pattern
+  `cd <project> && fcc-claude --resume <id>` and explains why omitting the
+  `cd` leaves the statusline rendering without a folder / git segment even
+  though the session resumed correctly.
+
 ### Planned
 - (no items yet)
 
